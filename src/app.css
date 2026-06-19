@@ -1,0 +1,224 @@
+:root {
+  --bg: #0e0f13;
+  --panel: #181a22;
+  --panel-2: #1f222c;
+  --border: #2b2f3a;
+  --text: #e6e8ee;
+  --muted: #8b90a0;
+  --accent: #5b8cff;
+  --call: #3a8f5a;
+  --response: #d98a2b;
+  --danger: #d9534f;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+}
+
+header.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+header.app-header h1 {
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+header.app-header .subtitle {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 0.15rem;
+}
+
+.badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.badge.call {
+  background: color-mix(in srgb, var(--call) 25%, transparent);
+  color: #8fe6ad;
+  border-color: var(--call);
+}
+.badge.response {
+  background: color-mix(in srgb, var(--response) 25%, transparent);
+  color: #ffce8f;
+  border-color: var(--response);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.panel h2 {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin: 0 0 0.85rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+.row:last-child {
+  margin-bottom: 0;
+}
+.row label {
+  width: 92px;
+  flex: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+select,
+input[type="text"],
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+}
+select,
+input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+button {
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+button:hover {
+  border-color: var(--accent);
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+button.danger {
+  border-color: var(--danger);
+  color: #ff9b98;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.value {
+  width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+  display: inline-block;
+}
+.status-dot.ready {
+  background: var(--call);
+}
+.status-dot.loading {
+  background: var(--response);
+}
+.status-dot.error {
+  background: var(--danger);
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.error {
+  color: #ff9b98;
+  font-size: 0.82rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.85rem;
+}
+.tabs button {
+  padding: 0.3rem 0.8rem;
+  font-size: 0.82rem;
+}
+.tabs button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+table.mappings {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+table.mappings th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+table.mappings td {
+  padding: 0.25rem 0.4rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+table.mappings select,
+table.mappings input {
+  padding: 0.25rem 0.4rem;
+  width: 100%;
+}
+table.mappings input[type="number"] {
+  width: 64px;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}

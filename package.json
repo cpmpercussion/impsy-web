@@ -1,0 +1,30 @@
+{
+  "name": "impsy-web",
+  "version": "0.0.1",
+  "description": "Browser-based IMPSY — run IMPSY MDRNN models in the web browser, driving local MIDI via Web MIDI.",
+  "type": "module",
+  "scripts": {
+    "sync-wasm": "node scripts/sync-wasm.mjs",
+    "predev": "node scripts/sync-wasm.mjs",
+    "prebuild": "node scripts/sync-wasm.mjs",
+    "dev": "vite",
+    "build": "svelte-check --tsconfig ./tsconfig.json && vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@tsconfig/svelte": "^5.0.4",
+    "playwright": "^1.61.0",
+    "svelte": "^5.19.0",
+    "svelte-check": "^4.1.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7",
+    "vitest": "^3.0.4"
+  },
+  "dependencies": {
+    "@litertjs/core": "^0.1.0"
+  }
+}
