@@ -5,7 +5,11 @@
   --border: #2b2f3a;
   --text: #e6e8ee;
   --muted: #8b90a0;
-  --accent: #5b8cff;
+  /* Sanzo Wada–derived brass: the warm anchor that ties the green call-state,
+     orange response, and red danger together (replaces the old blue accent).
+     --accent-ink is the deep-green near-black used for text on brass fills. */
+  --accent: #a8923f;
+  --accent-ink: #0f261f;
   --call: #3a8f5a;
   --response: #d98a2b;
   --danger: #d9534f;
@@ -45,7 +49,7 @@ body {
 .pane-tabs button.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
@@ -173,7 +177,7 @@ button:hover {
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
   font-weight: 600;
 }
 button.danger {
@@ -185,9 +189,12 @@ button:disabled {
   cursor: not-allowed;
 }
 
+input[type="range"],
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
 input[type="range"] {
   flex: 1;
-  accent-color: var(--accent);
 }
 
 .value {
@@ -237,7 +244,7 @@ input[type="range"] {
 .tabs button.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 table.mappings {
