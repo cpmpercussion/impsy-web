@@ -49,6 +49,7 @@ Web MIDI in  → InteractionEngine.enqueueInput
 | `impsy/mdnSampler.ts` | `MDNSampler.swift` | softmax-temp → categorical → Box-Muller; postProcess (÷10, clamp, min dt) |
 | `impsy/midiMapping.ts` | `MIDIMapping.swift` | `DimensionMapping` / `MIDIMappingSet`, defaults, AiC preset |
 | `impsy/midiMapper.ts` | `MIDIMapper.swift` | MIDI bytes ↔ normalised [0,1]; monophonic note_off; dedup window |
+| `impsy/config.ts` | `IMPSYConfig.swift` + `…+TOML.swift` | IMPSY `.toml` parse/serialize (params + mappings); round-trips with Python/AUv3 via `smol-toml`; preserves unknown sections |
 | `impsy/tfliteRnn.ts` | `TFLiteRNN.swift` + `ModelInspector.swift` | LiteRT wrapper; introspects config; holds LSTM state across `generate()` |
 | `impsy/interactionEngine.ts` | `InteractionEngine.swift` | call/response state machine + self-feeding response loop |
 | `midi/webMidi.ts` | `CoreMIDIBridge` | Web MIDI access, device lists, send/receive |

@@ -25,6 +25,7 @@
     "vitest": "^3.0.4"
   },
   "dependencies": {
-    "@litertjs/core": "^0.1.0"
+    "@litertjs/core": "^0.1.0",
+    "smol-toml": "^1.6.1"
   }
 }

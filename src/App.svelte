@@ -5,6 +5,7 @@
   import DimensionFaders from "./components/DimensionFaders.svelte";
   import ParameterControls from "./components/ParameterControls.svelte";
   import MappingEditor from "./components/MappingEditor.svelte";
+  import ConfigIO from "./components/ConfigIO.svelte";
 
   type Pane = "dashboard" | "settings" | "mapping";
   const panes: { id: Pane; label: string }[] = [
@@ -53,6 +54,7 @@
       <ModelStatus />
       <MidiConnection />
       <ParameterControls />
+      <ConfigIO />
     </div>
 
     <div class="pane" class:active={active === "mapping"}>

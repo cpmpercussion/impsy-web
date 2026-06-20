@@ -13,6 +13,12 @@ import {
 } from "./impsy/midiMapping";
 import { encodeSingle } from "./impsy/midiMapper";
 import { ParameterDefaults } from "./impsy/constants";
+import {
+  parseConfig,
+  serializeConfig,
+  mappingSetFromConfig,
+  type IMPSYConfig,
+} from "./impsy/config";
 
 // Base-relative so it resolves under the GitHub Pages subpath (/impsy-web/)
 // as well as at dev root (/).
@@ -203,6 +209,64 @@ export class IMPSYApp {
   setMappings(mappings: MIDIMappingSet): void {
     this.mappings = mappings;
     this.engine?.updateMappings(mappings);
+  }
+
+  // ── Config import / export (IMPSY .toml) ───────────────────────────────────
+  // Round-trips with the Python app and AUv3 plugin (see issue #3). Unmodelled
+  // sections of an imported file are kept so a subsequent export preserves them.
+  private importedRaw: Record<string, unknown> | undefined;
+
+  /** Parse a config and apply its params + mappings to live state. */
+  applyConfig(config: IMPSYConfig): void {
+    this.importedRaw = config.raw;
+    this.setParam("threshold", config.threshold);
+    this.setParam("sigmaTemp", config.sigmaTemp);
+    this.setParam("piTemp", config.piTemp);
+    this.setParam("timescale", config.timescale);
+    this.setParam("inputThru", config.inputThru);
+    // Replace mappings wholesale. Row count is honoured as-is — decoupled from
+    // the current model dimension, matching the AUv3 behaviour.
+    this.setMappings(mappingSetFromConfig(config));
+  }
+
+  async importConfigFromFile(file: File): Promise<void> {
+    try {
+      const text = await file.text();
+      this.applyConfig(parseConfig(text));
+      this.errorMessage = null;
+    } catch (err) {
+      this.errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("[IMPSY] config import failed:", err);
+    }
+  }
+
+  /** Serialise current params + mappings to an IMPSY-format TOML string. */
+  exportConfigToml(): string {
+    const config: IMPSYConfig = {
+      threshold: this.params.threshold,
+      sigmaTemp: this.params.sigmaTemp,
+      piTemp: this.params.piTemp,
+      timescale: this.params.timescale,
+      inputThru: this.params.inputThru,
+      modelFile: this.modelName ?? undefined,
+      modelDimension: this.modelConfig?.dimension,
+      inputMappings: this.mappings.inputMappings,
+      outputMappings: this.mappings.outputMappings,
+      raw: this.importedRaw,
+    };
+    return serializeConfig(config);
+  }
+
+  /** Trigger a browser download of the current config as a .toml file. */
+  downloadConfig(filename = "impsy-config.toml"): void {
+    const toml = this.exportConfigToml();
+    const blob = new Blob([toml], { type: "application/toml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   private ensureEngine(): void {
