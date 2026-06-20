@@ -14,7 +14,9 @@ import {
 import { encodeSingle } from "./impsy/midiMapper";
 import { ParameterDefaults } from "./impsy/constants";
 
-const WASM_PATH = "/litert-wasm/";
+// Base-relative so it resolves under the GitHub Pages subpath (/impsy-web/)
+// as well as at dev root (/).
+const WASM_PATH = `${import.meta.env.BASE_URL}litert-wasm/`;
 
 export type ModelStatus = "none" | "loading" | "ready" | "error";
 
@@ -35,8 +37,10 @@ export class IMPSYApp {
   midiGranted = $state(false);
   inputs = $state<MIDIPort[]>([]);
   outputs = $state<MIDIPort[]>([]);
-  selectedInputId = $state<string | null>(null);
-  selectedOutputId = $state<string | null>(null);
+  // Multiple devices may be active on each side at once (see WebMIDI). A
+  // selected id that's currently absent (unplugged) is kept so it reconnects.
+  selectedInputIds = $state<string[]>([]);
+  selectedOutputIds = $state<string[]>([]);
 
   modelName = $state<string | null>(null);
   modelConfig = $state<ModelConfig | null>(null);
@@ -73,18 +77,34 @@ export class IMPSYApp {
   private refreshPorts(): void {
     this.inputs = this.midi.inputs;
     this.outputs = this.midi.outputs;
-    if (!this.selectedInputId && this.inputs[0]) this.selectInput(this.inputs[0].id);
-    if (!this.selectedOutputId && this.outputs[0]) this.selectOutput(this.outputs[0].id);
+    // On first grant (nothing chosen yet) auto-select the first device on each
+    // side, matching the previous single-device behaviour.
+    if (this.selectedInputIds.length === 0 && this.inputs[0]) this.selectedInputIds = [this.inputs[0].id];
+    if (this.selectedOutputIds.length === 0 && this.outputs[0]) this.selectedOutputIds = [this.outputs[0].id];
+    // Rebind: a port may have (dis)appeared, so re-attach handlers/outputs.
+    this.syncMidi();
   }
 
-  selectInput(id: string | null): void {
-    this.selectedInputId = id;
-    this.midi.selectInput(id, (data) => this.engine?.enqueueInput(data));
+  /** Push the current selection arrays into the WebMIDI layer. */
+  private syncMidi(): void {
+    this.midi.setInputs(this.selectedInputIds, (data) => this.engine?.enqueueInput(data));
+    this.midi.setOutputs(this.selectedOutputIds);
   }
 
-  selectOutput(id: string | null): void {
-    this.selectedOutputId = id;
-    this.midi.selectOutput(id);
+  toggleInput(id: string, on: boolean): void {
+    const set = new Set(this.selectedInputIds);
+    if (on) set.add(id);
+    else set.delete(id);
+    this.selectedInputIds = [...set];
+    this.syncMidi();
+  }
+
+  toggleOutput(id: string, on: boolean): void {
+    const set = new Set(this.selectedOutputIds);
+    if (on) set.add(id);
+    else set.delete(id);
+    this.selectedOutputIds = [...set];
+    this.syncMidi();
   }
 
   // ── Model loading ───────────────────────────────────────────────────────

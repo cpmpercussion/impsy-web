@@ -13,10 +13,14 @@ type MessageHandler = (data: Uint8Array) => void;
 
 export class WebMIDI {
   private access: MIDIAccess | null = null;
-  private selectedInputId: string | null = null;
-  private selectedOutputId: string | null = null;
+  // Multiple inputs and outputs can be active at once: incoming messages from
+  // every selected input are merged into the single handler, and `send` fans
+  // out to every selected output. This lets IMPSY drive e.g. a hardware
+  // interface and an IAC bus (to a DAW) simultaneously, no external routing.
+  private selectedInputIds = new Set<string>();
+  private selectedOutputIds = new Set<string>();
   private messageHandler: MessageHandler | null = null;
-  private boundInput: MIDIInput | null = null;
+  private boundInputs = new Map<string, MIDIInput>();
 
   /** Called whenever the device list changes (connect/disconnect). */
   onPortsChanged: (() => void) | null = null;
@@ -44,35 +48,44 @@ export class WebMIDI {
     return [...this.access.outputs.values()].map((p) => ({ id: p.id, name: p.name ?? p.id }));
   }
 
-  /** Subscribe to incoming MIDI messages from the chosen input. */
-  selectInput(id: string | null, handler: MessageHandler): void {
+  /**
+   * Bind the incoming-message handler to every selected input. Inputs not
+   * currently present (unplugged) are kept in the selection so they rebind
+   * automatically when they reappear — call this again after a port change.
+   */
+  setInputs(ids: string[], handler: MessageHandler): void {
     this.messageHandler = handler;
-    if (this.boundInput) this.boundInput.onmidimessage = null;
-    this.boundInput = null;
-    this.selectedInputId = id;
-    if (!this.access || !id) return;
-    const input = this.access.inputs.get(id);
-    if (!input) return;
-    input.onmidimessage = (e: MIDIMessageEvent) => {
-      if (e.data) this.messageHandler?.(new Uint8Array(e.data));
-    };
-    this.boundInput = input;
+    this.selectedInputIds = new Set(ids);
+    // Detach all previously bound inputs, then (re)bind the current selection.
+    for (const input of this.boundInputs.values()) input.onmidimessage = null;
+    this.boundInputs.clear();
+    if (!this.access) return;
+    for (const id of this.selectedInputIds) {
+      const input = this.access.inputs.get(id);
+      if (!input) continue;
+      input.onmidimessage = (e: MIDIMessageEvent) => {
+        if (e.data) this.messageHandler?.(new Uint8Array(e.data));
+      };
+      this.boundInputs.set(id, input);
+    }
   }
 
-  selectOutput(id: string | null): void {
-    this.selectedOutputId = id;
+  setOutputs(ids: string[]): void {
+    this.selectedOutputIds = new Set(ids);
   }
 
-  /** Send a raw MIDI message to the chosen output. No-op if none selected. */
+  /** Send a raw MIDI message to every selected output. No-op if none selected. */
   send(bytes: number[] | Uint8Array): void {
-    if (!this.access || !this.selectedOutputId) return;
-    this.access.outputs.get(this.selectedOutputId)?.send(bytes as number[]);
+    if (!this.access || this.selectedOutputIds.size === 0) return;
+    for (const id of this.selectedOutputIds) {
+      this.access.outputs.get(id)?.send(bytes as number[]);
+    }
   }
 
-  get inputId(): string | null {
-    return this.selectedInputId;
+  get inputIds(): string[] {
+    return [...this.selectedInputIds];
   }
-  get outputId(): string | null {
-    return this.selectedOutputId;
+  get outputIds(): string[] {
+    return [...this.selectedOutputIds];
   }
 }

@@ -29,6 +29,53 @@ body {
   padding: 1.5rem 1.25rem 4rem;
 }
 
+/* ── Three-pane layout ──────────────────────────────────────────────────────
+   Mobile-first: a tab switcher shows one pane at a time. On wide screens the
+   tabs hide and all three panes lay out side-by-side as columns. */
+.pane-tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+.pane-tabs button {
+  flex: 1;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.85rem;
+}
+.pane-tabs button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Narrow: only the active pane is shown. */
+.pane {
+  display: none;
+}
+.pane.active {
+  display: block;
+}
+
+@media (min-width: 900px) {
+  .app {
+    max-width: 1180px;
+  }
+  .pane-tabs {
+    display: none;
+  }
+  .panes {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+  }
+  /* All panes visible side-by-side regardless of the active tab. */
+  .pane {
+    display: block;
+  }
+}
+
 header.app-header {
   display: flex;
   align-items: center;
