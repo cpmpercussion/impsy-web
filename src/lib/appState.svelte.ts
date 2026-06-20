@@ -18,6 +18,11 @@ import { ParameterDefaults } from "./impsy/constants";
 // as well as at dev root (/).
 const WASM_PATH = `${import.meta.env.BASE_URL}litert-wasm/`;
 
+// The bundled Flex-free demo model, auto-loaded on startup so the app is ready
+// to play without the user having to pick a file (see FEASIBILITY.md).
+export const DEMO_MODEL_URL =
+  `${import.meta.env.BASE_URL}models/musicMDRNN-dim9-layers2-units64-mixtures5-scale10.tflite`;
+
 export type ModelStatus = "none" | "loading" | "ready" | "error";
 
 export interface Params {
@@ -108,6 +113,16 @@ export class IMPSYApp {
   }
 
   // ── Model loading ───────────────────────────────────────────────────────
+  /**
+   * Load the bundled demo model once at startup so the app is playable on
+   * open. No-op if a model is already loading/loaded (e.g. the user got in
+   * first). Failures are surfaced via modelStatus/errorMessage like any load.
+   */
+  async autoLoadDefaultModel(): Promise<void> {
+    if (this.modelStatus !== "none") return;
+    await this.loadModelFromUrl(DEMO_MODEL_URL);
+  }
+
   async loadModelFromFile(file: File): Promise<void> {
     const buf = new Uint8Array(await file.arrayBuffer());
     await this.loadModelBytes(buf, file.name);

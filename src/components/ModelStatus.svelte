@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { app } from "../lib/appState.svelte";
+  import { app, DEMO_MODEL_URL } from "../lib/appState.svelte";
 
   let fileInput: HTMLInputElement;
 
@@ -33,7 +33,7 @@
 
   <div class="row">
     <button class="primary" onclick={() => fileInput.click()}>Load .tflite…</button>
-    <button onclick={() => app.loadModelFromUrl(`${import.meta.env.BASE_URL}models/musicMDRNN-dim9-layers2-units64-mixtures5-scale10.tflite`)}>
+    <button onclick={() => app.loadModelFromUrl(DEMO_MODEL_URL)}>
       Load demo model
     </button>
     {#if app.modelStatus === "ready"}
