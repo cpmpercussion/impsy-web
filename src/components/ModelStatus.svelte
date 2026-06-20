@@ -33,7 +33,7 @@
 
   <div class="row">
     <button class="primary" onclick={() => fileInput.click()}>Load .tflite…</button>
-    <button onclick={() => app.loadModelFromUrl("/models/musicMDRNN-dim9-layers2-units64-mixtures5-scale10.tflite")}>
+    <button onclick={() => app.loadModelFromUrl(`${import.meta.env.BASE_URL}models/musicMDRNN-dim9-layers2-units64-mixtures5-scale10.tflite`)}>
       Load demo model
     </button>
     {#if app.modelStatus === "ready"}

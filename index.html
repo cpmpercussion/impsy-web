@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>IMPSY Web</title>
+    <!-- Cross-origin isolation for SharedArrayBuffer (multi-threaded WASM) on
+         hosts that can't send COOP/COEP headers, e.g. GitHub Pages. Must load
+         before the app. Self-registers and reloads once; no-op when the host
+         already sends the headers (dev). -->
+    <script src="/coi-serviceworker.js"></script>
   </head>
   <body>
     <div id="app"></div>
