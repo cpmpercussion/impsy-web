@@ -10,9 +10,11 @@
      --accent-ink is the deep-green near-black used for text on brass fills. */
   --accent: #a8923f;
   --accent-ink: #0f261f;
+  /* Green stays the model-OUTPUT colour (slider fills, ready dot, flash). */
   --call: #3a8f5a;
-  --response: #d98a2b;
-  --danger: #d9534f;
+  /* Crimson is the human-INPUT colour: input slider fills, the CALL label,
+     and destructive/error highlights. */
+  --danger: #a10b2b;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -109,14 +111,14 @@ header.app-header .subtitle {
   border: 1px solid var(--border);
 }
 .badge.call {
-  background: color-mix(in srgb, var(--call) 25%, transparent);
-  color: #8fe6ad;
-  border-color: var(--call);
+  background: color-mix(in srgb, var(--danger) 25%, transparent);
+  color: #f2a3a3;
+  border-color: var(--danger);
 }
 .badge.response {
-  background: color-mix(in srgb, var(--response) 25%, transparent);
-  color: #ffce8f;
-  border-color: var(--response);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: #e6cf8a;
+  border-color: var(--accent);
 }
 
 .panel {
@@ -182,7 +184,7 @@ button.primary {
 }
 button.danger {
   border-color: var(--danger);
-  color: #ff9b98;
+  color: #f2a3a3;
 }
 button:disabled {
   opacity: 0.45;
@@ -216,7 +218,7 @@ input[type="range"] {
   background: var(--call);
 }
 .status-dot.loading {
-  background: var(--response);
+  background: var(--accent);
 }
 .status-dot.error {
   background: var(--danger);
@@ -228,7 +230,7 @@ input[type="range"] {
   line-height: 1.5;
 }
 .error {
-  color: #ff9b98;
+  color: #f2a3a3;
   font-size: 0.82rem;
 }
 

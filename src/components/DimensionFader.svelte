@@ -154,7 +154,7 @@
     color: #eaffef;
   }
   .dim.user {
-    color: #ff9b98;
+    color: #f2a3a3;
   }
   .track {
     position: relative;
@@ -187,6 +187,6 @@
     color: #8fe6ad;
   }
   .val.user {
-    color: #ff9b98;
+    color: #f2a3a3;
   }
 </style>
