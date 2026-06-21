@@ -17,6 +17,7 @@ import {
 } from "./midi/midiLog";
 import { SessionLogger } from "./impsy/sessionLogger";
 import { ParameterDefaults } from "./impsy/constants";
+import { loadState, saveState, type PersistedMappings } from "./persistence";
 import {
   parseConfig,
   serializeConfig,
@@ -72,6 +73,11 @@ export class IMPSYApp {
 
   params = $state<Params>({ ...ParameterDefaults });
 
+  // Mappings restored from a previous session, applied on model load only when
+  // the model's dimension matches the one they were authored for (issue #4).
+  private restoredMappings: PersistedMappings | null = null;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+
   // Per-dimension fader state (one entry per user dimension = dimension - 1).
   // `outputValues` is the last value the RNN emitted for each dimension (the
   // green bar position); `inputValues` is the last user value (red). The
@@ -100,6 +106,50 @@ export class IMPSYApp {
   private log = new MIDILog(20);
   private logFlushScheduled = false;
 
+  constructor() {
+    this.restore();
+  }
+
+  // ── Persistence (issue #4) ─────────────────────────────────────────────────
+  /** Rehydrate saved settings on startup. Mappings are deferred to model load. */
+  private restore(): void {
+    const s = loadState();
+    if (!s) return;
+    this.params = { ...this.params, ...s.params };
+    this.selectedInputIds = s.selectedInputIds;
+    this.selectedOutputIds = s.selectedOutputIds;
+    this.recording = s.recording;
+    this.logger.setEnabled(s.recording);
+    if (s.mappings) {
+      this.restoredMappings = s.mappings;
+      // Show the remembered mappings immediately; a model load reconciles them
+      // against the actual dimension (and reverts to defaults on a mismatch).
+      this.mappings = {
+        inputMappings: s.mappings.inputMappings,
+        outputMappings: s.mappings.outputMappings,
+      };
+    }
+  }
+
+  /** Debounced write of the current persistable state to localStorage. */
+  private persist(): void {
+    if (this.saveTimer !== null) clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      saveState({
+        params: this.params,
+        mappings: {
+          dimension: this.mappings.inputMappings.length + 1,
+          inputMappings: this.mappings.inputMappings,
+          outputMappings: this.mappings.outputMappings,
+        },
+        selectedInputIds: this.selectedInputIds,
+        selectedOutputIds: this.selectedOutputIds,
+        recording: this.recording,
+      });
+    }, 300);
+  }
+
   // ── MIDI access ───────────────────────────────────────────────────────────
   async requestMIDI(): Promise<void> {
     try {
@@ -123,6 +173,7 @@ export class IMPSYApp {
       this.selectedOutputIds = [this.outputs[0].id];
     // Rebind: a port may have (dis)appeared, so re-attach handlers/outputs.
     this.syncMidi();
+    this.persist();
   }
 
   /** Push the current selection arrays into the WebMIDI layer. */
@@ -140,6 +191,7 @@ export class IMPSYApp {
     else set.delete(id);
     this.selectedInputIds = [...set];
     this.syncMidi();
+    this.persist();
   }
 
   toggleOutput(id: string, on: boolean): void {
@@ -148,6 +200,7 @@ export class IMPSYApp {
     else set.delete(id);
     this.selectedOutputIds = [...set];
     this.syncMidi();
+    this.persist();
   }
 
   // ── Model loading ───────────────────────────────────────────────────────
@@ -181,9 +234,18 @@ export class IMPSYApp {
       const rnn = await TFLiteRNN.create(bytes, "wasm");
       const config = rnn.config;
 
-      // Default mapping: the 9-dim AiC preset when it fits, else generic.
-      this.mappings =
-        config.dimension === 9 ? aicU6MIDIProDefault() : defaultMappingSet(config.dimension);
+      // Prefer mappings restored from a previous session when they were
+      // authored for this model's dimension (issue #4); otherwise the 9-dim
+      // AiC preset when it fits, else a generic per-dimension default.
+      if (this.restoredMappings && this.restoredMappings.dimension === config.dimension) {
+        this.mappings = {
+          inputMappings: this.restoredMappings.inputMappings,
+          outputMappings: this.restoredMappings.outputMappings,
+        };
+      } else {
+        this.mappings =
+          config.dimension === 9 ? aicU6MIDIProDefault() : defaultMappingSet(config.dimension);
+      }
 
       // Reset per-dimension fader state to the user dimension count.
       const userDims = Math.max(0, config.dimension - 1);
@@ -273,11 +335,15 @@ export class IMPSYApp {
   setParam<K extends keyof Params>(key: K, value: Params[K]): void {
     this.params = { ...this.params, [key]: value };
     if (this.engine) (this.engine as unknown as Record<string, unknown>)[key] = value;
+    this.persist();
   }
 
   setMappings(mappings: MIDIMappingSet): void {
     this.mappings = mappings;
+    // Edited mappings supersede any restored set for the persistence key.
+    this.restoredMappings = null;
     this.engine?.updateMappings(mappings);
+    this.persist();
   }
 
   // ── Config import / export (IMPSY .toml) ───────────────────────────────────
@@ -343,6 +409,7 @@ export class IMPSYApp {
   setRecording(on: boolean): void {
     this.recording = on;
     this.logger.setEnabled(on);
+    this.persist();
   }
 
   /** Download the recorded session as an IMPSY-format `.log` file. */
