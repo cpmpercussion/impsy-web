@@ -12,6 +12,7 @@ import {
   aicU6MIDIProDefault,
 } from "./impsy/midiMapping";
 import { encodeSingle } from "./impsy/midiMapper";
+import { SessionLogger } from "./impsy/sessionLogger";
 import { ParameterDefaults } from "./impsy/constants";
 import {
   parseConfig,
@@ -42,6 +43,7 @@ export interface Params {
 export class IMPSYApp {
   private midi = new WebMIDI();
   private engine: InteractionEngine | null = null;
+  private logger = new SessionLogger();
 
   // ── Reactive UI state ────────────────────────────────────────────────────
   midiSupported = $state(WebMIDI.isSupported());
@@ -60,6 +62,11 @@ export class IMPSYApp {
 
   callState = $state<CallResponseState>("CALL");
   mappings = $state<MIDIMappingSet>(defaultMappingSet(9));
+
+  // Session logging (issue #2): record interface/rnn events to an IMPSY .log
+  // for download. `recordedEvents` is reactive so the UI can show the count.
+  recording = $state(false);
+  recordedEvents = $state(0);
 
   params = $state<Params>({ ...ParameterDefaults });
 
@@ -164,6 +171,10 @@ export class IMPSYApp {
       this.engine!.updateMappings(this.mappings);
       this.engine!.loadModel(rnn);
 
+      // Fresh logging session for the new model (mirrors the native loggers).
+      this.logger.startSession(config.dimension, name);
+      this.recordedEvents = 0;
+
       this.modelName = name;
       this.modelConfig = config;
       this.modelStatus = "ready";
@@ -176,6 +187,8 @@ export class IMPSYApp {
 
   clearModel(): void {
     this.engine?.clearModel();
+    this.logger.endSession();
+    this.recordedEvents = 0;
     this.modelName = null;
     this.modelConfig = null;
     this.modelStatus = "none";
@@ -269,6 +282,25 @@ export class IMPSYApp {
     URL.revokeObjectURL(url);
   }
 
+  // ── Session logging (IMPSY .log) ───────────────────────────────────────────
+  /** Enable/disable recording of interface + rnn events. */
+  setRecording(on: boolean): void {
+    this.recording = on;
+    this.logger.setEnabled(on);
+  }
+
+  /** Download the recorded session as an IMPSY-format `.log` file. */
+  downloadLog(): void {
+    if (this.logger.rowCount === 0) return;
+    const blob = new Blob([this.logger.buildContent()], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = this.logger.downloadFileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   private ensureEngine(): void {
     if (this.engine) return;
     const engine = new InteractionEngine(this.mappings, (bytes) => this.midi.send(bytes));
@@ -289,6 +321,10 @@ export class IMPSYApp {
         this.outputValues[i] = values[i];
         this.outputTriggers[i]++;
       }
+      if (this.logger.logRNN(values)) this.recordedEvents = this.logger.rowCount;
+    };
+    engine.onInterfaceEvent = (values) => {
+      if (this.logger.logInterface(values)) this.recordedEvents = this.logger.rowCount;
     };
     engine.start();
     this.engine = engine;

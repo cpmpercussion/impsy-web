@@ -6,6 +6,7 @@
   import ParameterControls from "./components/ParameterControls.svelte";
   import MappingEditor from "./components/MappingEditor.svelte";
   import ConfigIO from "./components/ConfigIO.svelte";
+  import SessionRecording from "./components/SessionRecording.svelte";
 
   type Pane = "dashboard" | "settings" | "mapping";
   const panes: { id: Pane; label: string }[] = [
@@ -55,6 +56,7 @@
       <MidiConnection />
       <ParameterControls />
       <ConfigIO />
+      <SessionRecording />
     </div>
 
     <div class="pane" class:active={active === "mapping"}>

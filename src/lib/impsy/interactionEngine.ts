@@ -60,6 +60,10 @@ export class InteractionEngine {
   onStateChanged: ((s: CallResponseState) => void) | null = null;
   onEventGenerated: ((dt: number, events: MIDIEvent[], values: number[]) => void) | null = null;
   onUserInputReceived: ((dimIndex: number, value: number) => void) | null = null;
+  // Fires with a copy of the full input vector after each mapped MIDI message,
+  // so a session logger can record one `interface` row per interaction — mirrors
+  // logInterface in InteractionEngine.swift / construct_input_list in Python.
+  onInterfaceEvent: ((values: number[]) => void) | null = null;
 
   constructor(mappings: MIDIMappingSet, sendMIDI: (bytes: number[]) => void) {
     this.mapper = new MIDIMapper(mappings);
@@ -148,6 +152,8 @@ export class InteractionEngine {
       if (index >= 0 && index < this.inputVector.length) this.inputVector[index] = value;
       touched.push(index);
       gotUserInput = true;
+      // Log the full input vector after each mapped message (parity with AUv3).
+      this.onInterfaceEvent?.([...this.inputVector]);
     }
 
     const now = nowSeconds();
