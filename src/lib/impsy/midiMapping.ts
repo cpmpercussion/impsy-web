@@ -12,9 +12,12 @@ export const messageTypeDisplayName: Record<MIDIMessageType, string> = {
   pitchBend: "Pitch Bend",
 };
 
-/** Whether this message type uses a `number` field (note/CC number). */
+/**
+ * Whether this message type uses the `number` field (CC number). Note On
+ * doesn't: the note number *is* the value, on input and output alike.
+ */
 export function usesNumber(t: MIDIMessageType): boolean {
-  return t === "noteOn" || t === "controlChange";
+  return t === "controlChange";
 }
 
 export interface DimensionMapping {
@@ -23,7 +26,7 @@ export interface DimensionMapping {
   messageType: MIDIMessageType;
   /** MIDI channel 1–16. */
   channel: number;
-  /** Note number / CC number (0–127); ignored for pitchBend. */
+  /** CC number (0–127); ignored for noteOn and pitchBend. */
   number: number;
   /** CC range lower bound (0–127); only consulted for controlChange. */
   minValue: number;
