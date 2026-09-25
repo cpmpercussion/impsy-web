@@ -56,6 +56,7 @@ npm run build        # type-check + production build
 npm run check        # svelte-check only
 npm test             # vitest unit tests
 npm run test:e2e     # Playwright browser tests (starts its own servers)
+npm run format       # Prettier (CI checks formatting)
 
 # Diagnostic: print inference results in headless Chrome (needs `npm run dev`):
 node scripts/verify-inference.mjs
@@ -67,9 +68,10 @@ needed: they drive MIDI in → model → MIDI out against both the production bu
 `npx playwright install chromium`. Use `--project=preview` or `--project=dev`
 to run one target.
 
-CI (`.github/workflows/ci.yml`) runs the unit tests, type check, build and
-browser tests on every PR and push to `main`; `main` deploys to GitHub Pages
-once they pass.
+CI (`.github/workflows/ci.yml`) runs the format check, unit tests, type check,
+build and browser tests on every PR and push to `main`; `main` deploys to GitHub
+Pages once the unit tests pass, then `scripts/smoke-check.mjs` confirms the live
+site serves the new build, service worker, WASM runtime and demo model.
 
 ## Releases
 

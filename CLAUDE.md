@@ -23,6 +23,7 @@ npm run dev      # vite dev server on :5173 (predev copies LiteRT WASM to public
 npm run build    # svelte-check + vite build
 npm run check    # svelte-check type check only
 npm test         # vitest (unit tests for the ported logic)
+npm run format   # Prettier (CI runs format:check — run this before committing)
 npm run test:watch
 
 npm run test:e2e # Playwright browser tests (e2e/), fake Web MIDI; starts its own servers
@@ -34,7 +35,7 @@ node scripts/verify-inference.mjs
 
 Run a single test file with `npx vitest run src/lib/impsy/midiMapper.test.ts`.
 
-CI (`.github/workflows/ci.yml`) runs `npm test` + `npm run build` + `npm run test:e2e` on PRs and `main`; `deploy.yml` publishes `main` to GitHub Pages after the same checks. Releases are semver tags that must match `package.json` (`release.yml` creates the GitHub Release) — see `RELEASING.md`. The app footer shows `__APP_VERSION__` / `__GIT_HASH__`, injected by `vite.config.ts` `define`.
+CI (`.github/workflows/ci.yml`) runs `npm run format:check` + `npm test` + `npm run build` + `npm run test:e2e` on PRs and `main`; `deploy.yml` publishes `main` to GitHub Pages after the unit tests, then runs `scripts/smoke-check.mjs` against the live site. Releases are semver tags that must match `package.json` (`release.yml` creates the GitHub Release) — see `RELEASING.md`. The app footer shows `__APP_VERSION__` / `__GIT_HASH__`, injected by `vite.config.ts` `define`.
 
 ## Architecture
 

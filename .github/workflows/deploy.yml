@@ -42,6 +42,22 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # Post-deploy smoke check (issue #20): the live site serves this build, the
+  # COOP/COEP service worker, the LiteRT WASM and the demo model.
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/smoke-check.mjs "${{ needs.deploy.outputs.page_url }}" "${GITHUB_SHA::7}"
