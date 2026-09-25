@@ -25,8 +25,9 @@ loads and runs in the browser via LiteRT.js, with the stateful LSTM loop working
    and unnecessary at these model sizes.
 
 4. **Live inference (real Chrome, headless via Playwright).** Loaded the bundled
-   `dim9-units64` model: introspected `{dimension:9, numLayers:2, hiddenUnits:64,
-numMixtures:5}` and ran a 5-step self-feeding loop producing valid vectors
+   `dim9-units64` model: introspected
+   `{dimension:9, numLayers:2, hiddenUnits:64, numMixtures:5}` and ran a 5-step
+   self-feeding loop producing valid vectors
    (dt > 0, values ∈ [0,1]). Reproduce: `npm run dev`, then
    `node scripts/verify-inference.mjs`.
 
