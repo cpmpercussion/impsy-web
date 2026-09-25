@@ -72,7 +72,7 @@ TFLite models follow the convention in `../impsy/impsy/mdrnn.py` (`TfliteMDRNN`)
 
 ### Parameters & MIDI conventions (align with AUv3)
 
-Four params + a toggle, defaults from `../impsy/configs/AiC-charles-u6midipro.toml`: **Threshold** 0.1s, **Sigma Temp** 0.01, **Pi Temp** 1.0, **Timescale** 1.0×, **MIDI Thru** on. MIDI ↔ [0,1]: Note On `vel/127`; CC `value/127` (through the mapping's min/max); Pitch Bend `(raw+8192)/16383`. Dimension IDs are 1-based (dim 0 = time, not mappable); input and output mappings are independent.
+Four params + a toggle, defaults from `../impsy/configs/AiC-charles-u6midipro.toml`: **Threshold** 0.1s, **Sigma Temp** 0.01, **Pi Temp** 1.0, **Timescale** 1.0×, **MIDI Thru** on. MIDI ↔ [0,1]: Note On `note/127` (pitch; any note on the mapped channel, velocity-0 ignored — Python parity); CC `value/127` (through the mapping's min/max); Pitch Bend `(raw+8192)/16383`. Dimension IDs are 1-based (dim 0 = time, not mappable); input and output mappings are independent.
 
 ## Conventions & gotchas
 
