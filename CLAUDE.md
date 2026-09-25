@@ -24,11 +24,16 @@ npm run check    # svelte-check type check only
 npm test         # vitest (unit tests for the ported logic)
 npm run test:watch
 
-# End-to-end inference check in real Chrome (needs `npm run dev` running):
+npm run test:e2e # Playwright browser tests (e2e/), fake Web MIDI; starts its own servers
+                 # --project=preview (prod build under /impsy-web/) | --project=dev
+
+# Diagnostic inference printout in real Chrome (needs `npm run dev` running):
 node scripts/verify-inference.mjs
 ```
 
-`npm test` runs a single file via `npx vitest run src/lib/impsy/midiMapper.test.ts`.
+Run a single test file with `npx vitest run src/lib/impsy/midiMapper.test.ts`.
+
+CI (`.github/workflows/ci.yml`) runs `npm test` + `npm run build` + `npm run test:e2e` on PRs and `main`; `deploy.yml` publishes `main` to GitHub Pages after the same checks. Releases are semver tags that must match `package.json` (`release.yml` creates the GitHub Release) — see `RELEASING.md`. The app footer shows `__APP_VERSION__` / `__GIT_HASH__`, injected by `vite.config.ts` `define`.
 
 ## Architecture
 
@@ -80,3 +85,4 @@ Four params + a toggle, defaults from `../impsy/configs/AiC-charles-u6midipro.to
 - **LiteRT Tensor lifecycle**: tensors are WASM-backed and must be `.delete()`d. `tfliteRnn.ts` deletes every input/output tensor each `generate()` — don't drop that or memory leaks.
 - **Literal-type trap**: `ParameterDefaults` is `as const`, so fields initialised from it infer literal types (`0.1`, not `number`). Annotate such fields/`Params` explicitly (already done in `interactionEngine.ts` and `appState.svelte.ts`).
 - **Parity testing**: `src/lib/impsy/*.test.ts` pin the ported math/MIDI logic. When porting more from AUv3, add a test asserting the same numbers the Swift produces.
+- **Browser tests**: `e2e/midi.ts` installs a fake Web MIDI input/output (`midi.fire(...)`, `midi.sent()`). Faders show user input for only ~250 ms before settling back to the model value, so read them with `faderAfter()` (fire + read in one step) and check "ignored" messages with `expectIgnored()`. Set `PW_CHROMIUM_PATH` to use a preinstalled Chromium.

@@ -53,12 +53,27 @@ npm run dev          # dev server (predev copies the LiteRT WASM into public/)
 npm run build        # type-check + production build
 npm run check        # svelte-check only
 npm test             # vitest unit tests
+npm run test:e2e     # Playwright browser tests (starts its own servers)
 
-# Headless-Chrome checks (need `npm run dev` running; pass the port if not 5173):
-node scripts/verify-inference.mjs        # load a model + run the RNN
-node scripts/verify-faders.mjs           # drag a fader → model responds
-node scripts/verify-midi-input.mjs 5173  # mock controller lights the faders
+# Diagnostic: print inference results in headless Chrome (needs `npm run dev`):
+node scripts/verify-inference.mjs
 ```
+
+The browser tests (`e2e/`) use a fake Web MIDI device, so no hardware is
+needed: they drive MIDI in → model → MIDI out against both the production build
+(`vite preview` under `/impsy-web/`) and the dev server. First run:
+`npx playwright install chromium`. Use `--project=preview` or `--project=dev`
+to run one target.
+
+CI (`.github/workflows/ci.yml`) runs the unit tests, type check, build and
+browser tests on every PR and push to `main`; `main` deploys to GitHub Pages
+once they pass.
+
+## Releases
+
+Releases are semver tags on `main` with GitHub Release notes; the app footer
+shows the version and commit of the running build. See
+[RELEASING.md](RELEASING.md) for the process and the manual QA checklist.
 
 ## Architecture
 

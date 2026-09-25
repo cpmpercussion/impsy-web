@@ -284,3 +284,15 @@ table.mappings input[type="number"] {
   border: 1px solid var(--border);
   border-radius: 6px;
 }
+
+footer.app-footer {
+  margin-top: 2rem;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+footer.app-footer a {
+  color: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin-left: 0.3rem;
+}

@@ -5,3 +5,5 @@ dist/
 .vite/
 public/litert-wasm/
 .vscode/
+test-results/
+playwright-report/

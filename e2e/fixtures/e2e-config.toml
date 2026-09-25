@@ -1,0 +1,38 @@
+# e2e fixture: IMPSY-format config with non-default params and mappings.
+title = "impsy-web e2e fixture"
+
+[interaction]
+mode = "callresponse"
+threshold = 5.0
+input_thru = false
+
+[model]
+dimension = 9
+file = "models/musicMDRNN-dim9-layers2-units64-mixtures5-scale10.tflite"
+sigmatemp = 0.02
+pitemp = 1.5
+timescale = 2
+
+[midi]
+in_device = ["Mock Controller"]
+out_device = ["Mock Synth"]
+input."Mock Controller" = [
+  ["note_on", 2],
+  ["control_change", 3, 30],
+  ["control_change", 3, 31],
+  ["control_change", 3, 32],
+  ["control_change", 3, 33],
+  ["control_change", 3, 34],
+  ["control_change", 3, 35],
+  ["control_change", 3, 36],
+]
+output."Mock Synth" = [
+  ["control_change", 5, 40],
+  ["control_change", 5, 41],
+  ["control_change", 5, 42],
+  ["control_change", 5, 43],
+  ["control_change", 5, 44],
+  ["control_change", 5, 45],
+  ["control_change", 5, 46],
+  ["control_change", 5, 47],
+]

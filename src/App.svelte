@@ -21,6 +21,11 @@
   // Which pane is shown on narrow screens (tab mode). On wide screens all three
   // panes are laid out side-by-side and this only governs the active tab style.
   let active = $state<Pane>("dashboard");
+
+  // Build identity (issue #17): lets a bug report name the exact deploy.
+  const buildLabel = `v${__APP_VERSION__} · ${__GIT_HASH__}`;
+  const buildDate = __BUILD_DATE__;
+  const commitUrl = `https://github.com/cpmpercussion/impsy-web/commit/${__GIT_HASH__}`;
 </script>
 
 <div class="app">
@@ -71,4 +76,9 @@
       <MappingEditor />
     </div>
   </div>
+
+  <footer class="app-footer">
+    IMPSY Web
+    <a href={commitUrl} target="_blank" rel="noopener" title="Built {buildDate}">{buildLabel}</a>
+  </footer>
 </div>
