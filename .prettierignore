@@ -1,0 +1,7 @@
+dist/
+node_modules/
+public/litert-wasm/
+public/coi-serviceworker.js
+package-lock.json
+test-results/
+playwright-report/
