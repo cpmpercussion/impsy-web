@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  parseConfig,
-  serializeConfig,
-  ConfigParseError,
-  SYNTHESIZED_DEVICE_NAME,
-} from "./config";
+import { parseConfig, serializeConfig, ConfigParseError, SYNTHESIZED_DEVICE_NAME } from "./config";
 
 // The bundled AiC config (../impsy/configs/AiC-charles-u6midipro.toml), inlined
 // so the test doesn't depend on the sibling repo. Mirrors AUv3 IMPSYConfigTests.
@@ -253,11 +248,35 @@ server_port = 6000
       timescale: 1.5,
       inputThru: false,
       inputMappings: [
-        { id: 1, messageType: "controlChange", channel: 1, number: 74, minValue: 0, maxValue: 127, enabled: true },
-        { id: 2, messageType: "noteOn", channel: 2, number: 60, minValue: 0, maxValue: 127, enabled: true },
+        {
+          id: 1,
+          messageType: "controlChange",
+          channel: 1,
+          number: 74,
+          minValue: 0,
+          maxValue: 127,
+          enabled: true,
+        },
+        {
+          id: 2,
+          messageType: "noteOn",
+          channel: 2,
+          number: 60,
+          minValue: 0,
+          maxValue: 127,
+          enabled: true,
+        },
       ],
       outputMappings: [
-        { id: 1, messageType: "pitchBend", channel: 3, number: 0, minValue: 0, maxValue: 127, enabled: true },
+        {
+          id: 1,
+          messageType: "pitchBend",
+          channel: 3,
+          number: 0,
+          minValue: 0,
+          maxValue: 127,
+          enabled: true,
+        },
       ],
     });
     const reparsed = parseConfig(out);

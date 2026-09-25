@@ -20,8 +20,8 @@
   <h2>Configuration</h2>
 
   <p class="hint">
-    Import or export an IMPSY <code>.toml</code> config — moves parameters and
-    MIDI mappings between this app, the Python platform, and the AUv3 plugin.
+    Import or export an IMPSY <code>.toml</code> config — moves parameters and MIDI mappings between this
+    app, the Python platform, and the AUv3 plugin.
   </p>
 
   <div class="row">

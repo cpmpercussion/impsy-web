@@ -29,10 +29,7 @@ async function main() {
   }
 
   const allValid = steps.every(
-    (s) =>
-      s.length === dimension &&
-      s[0] > 0 &&
-      s.slice(1).every((v) => v >= 0 && v <= 1),
+    (s) => s.length === dimension && s[0] > 0 && s.slice(1).every((v) => v >= 0 && v <= 1),
   );
 
   return {

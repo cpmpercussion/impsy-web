@@ -24,6 +24,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm run format:check
       - run: npm test
       # prebuild syncs the LiteRT WASM, then svelte-check + vite build.
       - run: npm run build

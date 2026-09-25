@@ -56,10 +56,7 @@ export function postProcess(raw: number[]): number[] {
   return out;
 }
 
-export function softmaxWithTemperature(
-  logits: number[],
-  temperature: number,
-): number[] {
+export function softmaxWithTemperature(logits: number[], temperature: number): number[] {
   const safeTemp = Math.max(temperature, 1e-6);
   const scaled = logits.map((x) => x / safeTemp);
   const maxVal = scaled.reduce((a, b) => Math.max(a, b), -Infinity);

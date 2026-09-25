@@ -15,7 +15,13 @@
   /* Crimson is the human-INPUT colour: input slider fills, the CALL label,
      and destructive/error highlights. */
   --danger: #a10b2b;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
 }
 
 * {
@@ -177,7 +183,9 @@ input[type="text"] {
 
 button {
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 button:hover {
   border-color: var(--accent);

@@ -16,6 +16,7 @@ stateful call-and-response loop, and sends MIDI out (verified live into Ableton 
 an IAC bus). See [`FEASIBILITY.md`](./FEASIBILITY.md) for the feasibility study.
 
 **Done**
+
 - LiteRT.js (`@litertjs/core`) inference of IMPSY `.tflite` models, with LSTM state fed back each step
 - Faithful ports of the AUv3 core: MDN sampler, MIDI mapper, call/response interaction engine
 - Web MIDI input/output with device pickers
@@ -25,6 +26,7 @@ an IAC bus). See [`FEASIBILITY.md`](./FEASIBILITY.md) for the feasibility study.
 - Unit tests for the ported math/MIDI logic; headless-Chrome verification of inference, the fader loop, and MIDI input
 
 **Not yet**
+
 - MIDI Learn (capture a control into a mapping by wiggling it)
 - Inference in a Web Worker (currently main thread; fine at these model sizes)
 - Activity dashboard strip (CALL/RESPONSE + LEDs + last-event), interaction logging
@@ -54,6 +56,7 @@ npm run build        # type-check + production build
 npm run check        # svelte-check only
 npm test             # vitest unit tests
 npm run test:e2e     # Playwright browser tests (starts its own servers)
+npm run format       # Prettier (CI checks formatting)
 
 # Diagnostic: print inference results in headless Chrome (needs `npm run dev`):
 node scripts/verify-inference.mjs
@@ -65,9 +68,10 @@ needed: they drive MIDI in → model → MIDI out against both the production bu
 `npx playwright install chromium`. Use `--project=preview` or `--project=dev`
 to run one target.
 
-CI (`.github/workflows/ci.yml`) runs the unit tests, type check, build and
-browser tests on every PR and push to `main`; `main` deploys to GitHub Pages
-once they pass.
+CI (`.github/workflows/ci.yml`) runs the format check, unit tests, type check,
+build and browser tests on every PR and push to `main`; `main` deploys to GitHub
+Pages once the unit tests pass, then `scripts/smoke-check.mjs` confirms the live
+site serves the new build, service worker, WASM runtime and demo model.
 
 ## Releases
 

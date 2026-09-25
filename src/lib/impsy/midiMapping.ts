@@ -72,8 +72,7 @@ export interface MIDIMappingSet {
 /** Default mappings for a model with `dimension` total dims (including time). */
 export function defaultMappingSet(dimension: number): MIDIMappingSet {
   const count = Math.max(1, dimension - 1);
-  const make = () =>
-    Array.from({ length: count }, (_, i) => defaultMapping(i + 1));
+  const make = () => Array.from({ length: count }, (_, i) => defaultMapping(i + 1));
   return { inputMappings: make(), outputMappings: make() };
 }
 
@@ -92,16 +91,18 @@ export function aicU6MIDIProDefault(): MIDIMappingSet {
   const output: DimensionMapping[] = Array.from({ length: 8 }, (_, i) =>
     i % 2 === 0
       ? { ...defaultMapping(i + 1), messageType: "noteOn", channel: i / 2 + 1, number: 60 }
-      : { ...defaultMapping(i + 1), messageType: "controlChange", channel: 11, number: ((i - 1) / 2) + 1 },
+      : {
+          ...defaultMapping(i + 1),
+          messageType: "controlChange",
+          channel: 11,
+          number: (i - 1) / 2 + 1,
+        },
   );
   return { inputMappings: input, outputMappings: output };
 }
 
 /** Resize mappings to a new model dimension, preserving existing entries. */
-export function resizeMappingSet(
-  set: MIDIMappingSet,
-  dimension: number,
-): MIDIMappingSet {
+export function resizeMappingSet(set: MIDIMappingSet, dimension: number): MIDIMappingSet {
   const count = Math.max(0, dimension - 1);
   const fit = (arr: DimensionMapping[]): DimensionMapping[] => {
     const next = arr.slice(0, count);

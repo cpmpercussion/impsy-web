@@ -1,11 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  MIDILog,
-  describeMIDI,
-  isRealtime,
-  summarizeEmission,
-  summarizeMIDI,
-} from "./midiLog";
+import { MIDILog, describeMIDI, isRealtime, summarizeEmission, summarizeMIDI } from "./midiLog";
 
 describe("summarizeMIDI (AUv3 MIDIEvent.summary parity)", () => {
   it("formats note, CC and bend", () => {
@@ -17,11 +11,7 @@ describe("summarizeMIDI (AUv3 MIDIEvent.summary parity)", () => {
 
 describe("summarizeEmission", () => {
   it("skips the monophonic note_off and counts the rest", () => {
-    const events = [
-      { bytes: [0x80, 60, 0] },
-      { bytes: [0x90, 64, 64] },
-      { bytes: [0xba, 1, 100] },
-    ];
+    const events = [{ bytes: [0x80, 60, 0] }, { bytes: [0x90, 64, 64] }, { bytes: [0xba, 1, 100] }];
     expect(summarizeEmission(events)).toBe("Note 64 ch1 +1");
   });
 

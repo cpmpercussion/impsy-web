@@ -14,13 +14,9 @@
   <h2>MIDI Connection</h2>
 
   {#if !app.midiSupported}
-    <p class="error">
-      Web MIDI is not available in this browser. Use Chrome, Edge, or Firefox.
-    </p>
+    <p class="error">Web MIDI is not available in this browser. Use Chrome, Edge, or Firefox.</p>
   {:else if !app.midiGranted}
-    <button class="primary" onclick={() => app.requestMIDI()}>
-      Enable Web MIDI
-    </button>
+    <button class="primary" onclick={() => app.requestMIDI()}> Enable Web MIDI </button>
     <p class="hint">Grants access to your local MIDI input and output devices.</p>
   {:else}
     <div class="device-group">
