@@ -14,7 +14,9 @@ test("loads the demo model cross-origin isolated, with build info and no errors"
   await page.goto("./");
   await expect(page.getByText(/dim 9/)).toBeVisible({ timeout: 45_000 });
   expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
-  await expect(page.locator("footer.app-footer")).toContainText(/v\d+\.\d+\.\d+ · [0-9a-f]{7}|unknown/);
+  await expect(page.locator("footer.app-footer")).toContainText(
+    /v\d+\.\d+\.\d+ · [0-9a-f]{7}|unknown/,
+  );
   expect(pageErrors).toEqual([]);
 });
 
@@ -28,7 +30,10 @@ test("CC input drives the mapped fader and holds CALL", async ({ page, midi }) =
   await expectIgnored(page, midi, [0xb0, 99, 0], [0xb1, 13, 0]);
 });
 
-test("Note On input decodes pitch, ignoring velocity and note-offs (#12)", async ({ page, midi }) => {
+test("Note On input decodes pitch, ignoring velocity and note-offs (#12)", async ({
+  page,
+  midi,
+}) => {
   await openApp(page);
   await setThreshold(page, 3);
   // Map input dim 1 to Note On (ch1) in the mapping editor.

@@ -25,7 +25,13 @@ describe("decodeInput", () => {
 
 describe("noteOn input (issue #12, parity with Python/AUv3)", () => {
   const noteMap: DimensionMapping = {
-    id: 1, messageType: "noteOn", channel: 2, number: 60, minValue: 0, maxValue: 127, enabled: true,
+    id: 1,
+    messageType: "noteOn",
+    channel: 2,
+    number: 60,
+    minValue: 0,
+    maxValue: 127,
+    enabled: true,
   };
   const set = (): MIDIMappingSet => ({ inputMappings: [noteMap], outputMappings: [] });
 
@@ -75,7 +81,15 @@ describe("encodeOutput", () => {
     const set: MIDIMappingSet = {
       inputMappings: [],
       outputMappings: [
-        { id: 1, messageType: "noteOn", channel: 1, number: 60, minValue: 0, maxValue: 127, enabled: true },
+        {
+          id: 1,
+          messageType: "noteOn",
+          channel: 1,
+          number: 60,
+          minValue: 0,
+          maxValue: 127,
+          enabled: true,
+        },
       ],
     };
     const m = new MIDIMapper(set);
@@ -103,7 +117,15 @@ describe("releaseAllNotes", () => {
     const set: MIDIMappingSet = {
       inputMappings: [],
       outputMappings: [
-        { id: 1, messageType: "noteOn", channel: 2, number: 60, minValue: 0, maxValue: 127, enabled: true },
+        {
+          id: 1,
+          messageType: "noteOn",
+          channel: 2,
+          number: 60,
+          minValue: 0,
+          maxValue: 127,
+          enabled: true,
+        },
       ],
     };
     const m = new MIDIMapper(set);

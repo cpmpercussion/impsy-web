@@ -54,7 +54,9 @@
               <select
                 value={m.messageType}
                 onchange={(e) =>
-                  update(i, { messageType: (e.currentTarget as HTMLSelectElement).value as MIDIMessageType })}
+                  update(i, {
+                    messageType: (e.currentTarget as HTMLSelectElement).value as MIDIMessageType,
+                  })}
               >
                 {#each types as t}
                   <option value={t}>{messageTypeDisplayName[t]}</option>
@@ -67,7 +69,8 @@
                 min="1"
                 max="16"
                 value={m.channel}
-                onchange={(e) => update(i, { channel: Number((e.currentTarget as HTMLInputElement).value) })}
+                onchange={(e) =>
+                  update(i, { channel: Number((e.currentTarget as HTMLInputElement).value) })}
               />
             </td>
             <td>
@@ -77,7 +80,8 @@
                   min="0"
                   max="127"
                   value={m.number}
-                  onchange={(e) => update(i, { number: Number((e.currentTarget as HTMLInputElement).value) })}
+                  onchange={(e) =>
+                    update(i, { number: Number((e.currentTarget as HTMLInputElement).value) })}
                 />
               {:else}
                 <span class="hint">—</span>
@@ -87,7 +91,8 @@
               <input
                 type="checkbox"
                 checked={m.enabled}
-                onchange={(e) => update(i, { enabled: (e.currentTarget as HTMLInputElement).checked })}
+                onchange={(e) =>
+                  update(i, { enabled: (e.currentTarget as HTMLInputElement).checked })}
               />
             </td>
           </tr>

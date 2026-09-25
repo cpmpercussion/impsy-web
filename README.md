@@ -16,6 +16,7 @@ stateful call-and-response loop, and sends MIDI out (verified live into Ableton 
 an IAC bus). See [`FEASIBILITY.md`](./FEASIBILITY.md) for the feasibility study.
 
 **Done**
+
 - LiteRT.js (`@litertjs/core`) inference of IMPSY `.tflite` models, with LSTM state fed back each step
 - Faithful ports of the AUv3 core: MDN sampler, MIDI mapper, call/response interaction engine
 - Web MIDI input/output with device pickers
@@ -25,6 +26,7 @@ an IAC bus). See [`FEASIBILITY.md`](./FEASIBILITY.md) for the feasibility study.
 - Unit tests for the ported math/MIDI logic; headless-Chrome verification of inference, the fader loop, and MIDI input
 
 **Not yet**
+
 - MIDI Learn (capture a control into a mapping by wiggling it)
 - Inference in a Web Worker (currently main thread; fine at these model sizes)
 - Activity dashboard strip (CALL/RESPONSE + LEDs + last-event), interaction logging

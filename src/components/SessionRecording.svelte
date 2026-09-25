@@ -6,8 +6,8 @@
   <h2>Session recording</h2>
 
   <p class="hint">
-    Record every interface and RNN event to an IMPSY <code>.log</code> file. Drop
-    the download into a Python workspace's <code>logs/</code> folder and
+    Record every interface and RNN event to an IMPSY <code>.log</code> file. Drop the download into
+    a Python workspace's <code>logs/</code> folder and
     <code>impsy dataset</code> turns it into training data.
   </p>
 

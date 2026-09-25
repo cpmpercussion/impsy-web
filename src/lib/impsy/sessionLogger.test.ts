@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  SessionLogger,
-  isoTimestamp,
-  makeFileName,
-  formatValue,
-} from "./sessionLogger";
+import { SessionLogger, isoTimestamp, makeFileName, formatValue } from "./sessionLogger";
 
 // A fixed local-time instant for deterministic timestamp/filename assertions.
 const D = (ms = 123) => new Date(2025, 5, 20, 14, 35, 22, ms); // 2025-06-20T14:35:22.ms

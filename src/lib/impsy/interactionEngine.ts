@@ -12,11 +12,7 @@
 import { MIDIMapper, type MIDIEvent } from "./midiMapper";
 import type { MIDIMappingSet } from "./midiMapping";
 import type { TFLiteRNN } from "./tfliteRnn";
-import {
-  ParameterDefaults,
-  MINIMUM_DELTA_TIME,
-  RESPONSE_LOOP_MIN_DT,
-} from "./constants";
+import { ParameterDefaults, MINIMUM_DELTA_TIME, RESPONSE_LOOP_MIN_DT } from "./constants";
 
 export type CallResponseState = "CALL" | "RESPONSE";
 

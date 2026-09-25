@@ -33,9 +33,7 @@
 
   <div class="row">
     <button class="primary" onclick={() => fileInput.click()}>Load .tflite…</button>
-    <button onclick={() => app.loadModelFromUrl(DEMO_MODEL_URL)}>
-      Load demo model
-    </button>
+    <button onclick={() => app.loadModelFromUrl(DEMO_MODEL_URL)}> Load demo model </button>
     {#if app.modelStatus === "ready"}
       <button onclick={() => app.resetStates()}>Reset</button>
       <button class="danger" onclick={() => app.clearModel()}>Clear</button>

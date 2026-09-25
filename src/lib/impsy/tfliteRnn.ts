@@ -137,13 +137,7 @@ export class TFLiteRNN {
     Object.values(feed).forEach((t) => t.delete());
     Object.values(out).forEach((t) => t.delete());
 
-    return sampleMDN(
-      mdnParams,
-      this.config.dimension,
-      this.config.numMixtures,
-      piTemp,
-      sigmaTemp,
-    );
+    return sampleMDN(mdnParams, this.config.dimension, this.config.numMixtures, piTemp, sigmaTemp);
   }
 
   /** Zero all LSTM states. */

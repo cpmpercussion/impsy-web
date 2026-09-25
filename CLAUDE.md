@@ -11,6 +11,7 @@ Stack: **Svelte 5 (runes) + Vite + TypeScript**, with LiteRT.js for inference. S
 ## Sibling projects (the references)
 
 Assumed checked out as siblings:
+
 - **`../impsy/`** — canonical Python implementation. **Source of truth for behaviour.** When something is ambiguous, match what the Python does (`impsy/mdrnn.py`, `impsy/interaction.py`).
 - **`../impsy-auv3/`** — Swift/AUv3 plugin. **The UI/UX and feature target.** Most of `src/lib/impsy/` is a direct port of its `IMPSYExtension/Common/*.swift` — keep the correspondence when changing logic.
 
@@ -48,23 +49,24 @@ Web MIDI in  → InteractionEngine.enqueueInput
 
 ### Module map (`src/lib/`)
 
-| File | Ported from (AUv3) | Responsibility |
-|------|--------------------|----------------|
-| `impsy/constants.ts` | `IMPSYParameters.swift` | SCALE_FACTOR, min dt, param defaults/ranges |
-| `impsy/mdnSampler.ts` | `MDNSampler.swift` | softmax-temp → categorical → Box-Muller; postProcess (÷10, clamp, min dt) |
-| `impsy/midiMapping.ts` | `MIDIMapping.swift` | `DimensionMapping` / `MIDIMappingSet`, defaults, AiC preset |
-| `impsy/midiMapper.ts` | `MIDIMapper.swift` | MIDI bytes ↔ normalised [0,1]; monophonic note_off; dedup window |
-| `impsy/config.ts` | `IMPSYConfig.swift` + `…+TOML.swift` | IMPSY `.toml` parse/serialize (params + mappings); round-trips with Python/AUv3 via `smol-toml`; preserves unknown sections |
-| `impsy/tfliteRnn.ts` | `TFLiteRNN.swift` + `ModelInspector.swift` | LiteRT wrapper; introspects config; holds LSTM state across `generate()` |
-| `impsy/interactionEngine.ts` | `InteractionEngine.swift` | call/response state machine + self-feeding response loop |
-| `midi/webMidi.ts` | `CoreMIDIBridge` | Web MIDI access, device lists, send/receive |
-| `midi/midiLog.ts` | `MIDIEvent.summary` | MIDI message descriptions + bounded log for the live console / Last Output card |
-| `appState.svelte.ts` | `IMPSYViewModel.swift` | Svelte-runes orchestration; single shared `app` instance |
-| `components/*.svelte` | `IMPSYUI/*` | MIDI connection, model status, parameters, mapping editor |
+| File                         | Ported from (AUv3)                         | Responsibility                                                                                                              |
+| ---------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `impsy/constants.ts`         | `IMPSYParameters.swift`                    | SCALE_FACTOR, min dt, param defaults/ranges                                                                                 |
+| `impsy/mdnSampler.ts`        | `MDNSampler.swift`                         | softmax-temp → categorical → Box-Muller; postProcess (÷10, clamp, min dt)                                                   |
+| `impsy/midiMapping.ts`       | `MIDIMapping.swift`                        | `DimensionMapping` / `MIDIMappingSet`, defaults, AiC preset                                                                 |
+| `impsy/midiMapper.ts`        | `MIDIMapper.swift`                         | MIDI bytes ↔ normalised [0,1]; monophonic note_off; dedup window                                                            |
+| `impsy/config.ts`            | `IMPSYConfig.swift` + `…+TOML.swift`       | IMPSY `.toml` parse/serialize (params + mappings); round-trips with Python/AUv3 via `smol-toml`; preserves unknown sections |
+| `impsy/tfliteRnn.ts`         | `TFLiteRNN.swift` + `ModelInspector.swift` | LiteRT wrapper; introspects config; holds LSTM state across `generate()`                                                    |
+| `impsy/interactionEngine.ts` | `InteractionEngine.swift`                  | call/response state machine + self-feeding response loop                                                                    |
+| `midi/webMidi.ts`            | `CoreMIDIBridge`                           | Web MIDI access, device lists, send/receive                                                                                 |
+| `midi/midiLog.ts`            | `MIDIEvent.summary`                        | MIDI message descriptions + bounded log for the live console / Last Output card                                             |
+| `appState.svelte.ts`         | `IMPSYViewModel.swift`                     | Svelte-runes orchestration; single shared `app` instance                                                                    |
+| `components/*.svelte`        | `IMPSYUI/*`                                | MIDI connection, model status, parameters, mapping editor                                                                   |
 
 ### Model interface contract (must stay exact)
 
 TFLite models follow the convention in `../impsy/impsy/mdrnn.py` (`TfliteMDRNN`):
+
 - **Inputs**: `inputs (1,1,dimension)` + paired `state_h_N`/`state_c_N (1,hiddenUnits)`, ordered `[inputs, h0, c0, h1, c1, …]`.
 - **Outputs**: MDN `(1, numMixtures·(2·dimension+1))` + updated states.
 - **MDN layout**: `[mus: M×D | sigmas: M×D | piLogits: M]`. M is always 5.

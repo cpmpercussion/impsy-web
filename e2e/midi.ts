@@ -91,7 +91,11 @@ export async function setThreshold(page: Page, seconds: number): Promise<void> {
  * model's value, so reading it in a separate round-trip can miss the window on
  * a busy machine. Use with `expect.poll`, which re-fires on each attempt.
  */
-export async function faderAfter(page: Page, dimension: number, message: number[]): Promise<number> {
+export async function faderAfter(
+  page: Page,
+  dimension: number,
+  message: number[],
+): Promise<number> {
   return page.evaluate(
     async ([msg, dim]) => {
       window.__fireMIDI(msg);
@@ -107,7 +111,11 @@ export async function faderAfter(page: Page, dimension: number, message: number[
  * have settled back from any earlier input (~250 ms), firing them must not
  * snap any fader into the red user-input state.
  */
-export async function expectIgnored(page: Page, midi: MockMIDI, ...messages: number[][]): Promise<void> {
+export async function expectIgnored(
+  page: Page,
+  midi: MockMIDI,
+  ...messages: number[][]
+): Promise<void> {
   const userFaders = page.locator(".fader .val.user");
   await expect(userFaders).toHaveCount(0);
   await midi.fire(...messages);

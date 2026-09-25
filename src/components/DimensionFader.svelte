@@ -16,8 +16,7 @@
     outputTrigger: number;
     onDrag: (value: number) => void;
   }
-  let { dimension, modelValue, inputValue, inputTrigger, outputTrigger, onDrag }: Props =
-    $props();
+  let { dimension, modelValue, inputValue, inputTrigger, outputTrigger, onDrag }: Props = $props();
 
   let localValue = $state(0);
   let dragActive = $state(false);
@@ -147,7 +146,9 @@
     color: var(--muted);
     border-radius: 4px;
     padding: 0.05rem 0;
-    transition: background 0.12s, color 0.12s;
+    transition:
+      background 0.12s,
+      color 0.12s;
   }
   .dim.flash {
     background: color-mix(in srgb, var(--call) 55%, transparent);
@@ -172,7 +173,9 @@
     inset: 0 auto 0 0;
     background: var(--call);
     border-radius: 7px 0 0 7px;
-    transition: width 0.05s linear, background 0.12s;
+    transition:
+      width 0.05s linear,
+      background 0.12s;
   }
   .track.user .fill {
     background: var(--danger);

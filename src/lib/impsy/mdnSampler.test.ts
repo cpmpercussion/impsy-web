@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  softmaxWithTemperature,
-  sampleCategorical,
-  postProcess,
-  sampleMDN,
-} from "./mdnSampler";
+import { softmaxWithTemperature, sampleCategorical, postProcess, sampleMDN } from "./mdnSampler";
 import { SCALE_FACTOR, MINIMUM_DELTA_TIME } from "./constants";
 
 describe("softmaxWithTemperature", () => {

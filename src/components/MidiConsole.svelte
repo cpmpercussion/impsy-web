@@ -27,7 +27,9 @@
 
   {#if app.midiLog.length === 0}
     <p class="hint">
-      {app.consolePaused ? "Paused." : "No MIDI yet — play a controller, drag a fader, or let the model respond."}
+      {app.consolePaused
+        ? "Paused."
+        : "No MIDI yet — play a controller, drag a fader, or let the model respond."}
     </p>
   {:else}
     <ol class="log" aria-live="off">

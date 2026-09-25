@@ -22,8 +22,8 @@
       {/each}
     </div>
     <p class="hint" style="margin-top:0.7rem">
-      Drag a bar to play that dimension into IMPSY (red). When you pause, the model
-      responds and the bars follow its output (green).
+      Drag a bar to play that dimension into IMPSY (red). When you pause, the model responds and the
+      bars follow its output (green).
     </p>
   {/if}
 </section>

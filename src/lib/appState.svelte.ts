@@ -6,11 +6,7 @@
 import { WebMIDI, type MIDIPort } from "./midi/webMidi";
 import { InteractionEngine, type CallResponseState } from "./impsy/interactionEngine";
 import { TFLiteRNN, initLiteRt, type ModelConfig } from "./impsy/tfliteRnn";
-import {
-  type MIDIMappingSet,
-  defaultMappingSet,
-  aicU6MIDIProDefault,
-} from "./impsy/midiMapping";
+import { type MIDIMappingSet, defaultMappingSet, aicU6MIDIProDefault } from "./impsy/midiMapping";
 import { encodeSingle } from "./impsy/midiMapper";
 import {
   MIDILog,
@@ -34,8 +30,7 @@ const WASM_PATH = `${import.meta.env.BASE_URL}litert-wasm/`;
 
 // The bundled Flex-free demo model, auto-loaded on startup so the app is ready
 // to play without the user having to pick a file (see FEASIBILITY.md).
-export const DEMO_MODEL_URL =
-  `${import.meta.env.BASE_URL}models/musicMDRNN-dim9-layers2-units64-mixtures5-scale10.tflite`;
+export const DEMO_MODEL_URL = `${import.meta.env.BASE_URL}models/musicMDRNN-dim9-layers2-units64-mixtures5-scale10.tflite`;
 
 export type ModelStatus = "none" | "loading" | "ready" | "error";
 
@@ -122,8 +117,10 @@ export class IMPSYApp {
     this.outputs = this.midi.outputs;
     // On first grant (nothing chosen yet) auto-select the first device on each
     // side, matching the previous single-device behaviour.
-    if (this.selectedInputIds.length === 0 && this.inputs[0]) this.selectedInputIds = [this.inputs[0].id];
-    if (this.selectedOutputIds.length === 0 && this.outputs[0]) this.selectedOutputIds = [this.outputs[0].id];
+    if (this.selectedInputIds.length === 0 && this.inputs[0])
+      this.selectedInputIds = [this.inputs[0].id];
+    if (this.selectedOutputIds.length === 0 && this.outputs[0])
+      this.selectedOutputIds = [this.outputs[0].id];
     // Rebind: a port may have (dis)appeared, so re-attach handlers/outputs.
     this.syncMidi();
   }
