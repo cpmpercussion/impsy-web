@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { MIDIMapper } from "./midiMapper";
-import { defaultMappingSet, type MIDIMappingSet } from "./midiMapping";
+import { MIDIMapper, encodeSingle } from "./midiMapper";
+import { defaultMappingSet, type DimensionMapping, type MIDIMappingSet } from "./midiMapping";
 
 function ccSet(): MIDIMappingSet {
   // dim1 → CC74 ch1 (default), dim2 → CC75 ch1
@@ -20,6 +20,38 @@ describe("decodeInput", () => {
     const m = new MIDIMapper(ccSet());
     expect(m.decodeInput([0xb0, 7, 100])).toBeNull(); // CC7 not mapped
     expect(m.decodeInput([0x90, 60, 100])).toBeNull(); // note, but maps are CC
+  });
+});
+
+describe("noteOn input (issue #12, parity with Python/AUv3)", () => {
+  const noteMap: DimensionMapping = {
+    id: 1, messageType: "noteOn", channel: 2, number: 60, minValue: 0, maxValue: 127, enabled: true,
+  };
+  const set = (): MIDIMappingSet => ({ inputMappings: [noteMap], outputMappings: [] });
+
+  it("decodes any note on the mapped channel, with pitch as the value", () => {
+    const m = new MIDIMapper(set());
+    expect(m.decodeInput([0x91, 64, 100])).toEqual([0, 64 / 127]);
+    // Not tied to mapping.number (60): note 127 still matches
+    expect(m.decodeInput([0x91, 127, 1])).toEqual([0, 1]);
+    // Velocity doesn't affect the value
+    expect(m.decodeInput([0x91, 64, 5])).toEqual([0, 64 / 127]);
+  });
+
+  it("ignores note-offs, velocity-0 note-ons, and other channels", () => {
+    const m = new MIDIMapper(set());
+    expect(m.decodeInput([0x81, 64, 0])).toBeNull(); // explicit note_off
+    expect(m.decodeInput([0x91, 64, 0])).toBeNull(); // running-status note_off
+    expect(m.decodeInput([0x90, 64, 100])).toBeNull(); // ch1, mapping is ch2
+  });
+
+  it("round-trips a UI fader value through encodeSingle → decodeInput", () => {
+    const m = new MIDIMapper(set());
+    const ev = encodeSingle(0.5, noteMap);
+    expect(ev.bytes).toEqual([0x91, 64, 64]); // pitch = value, non-zero velocity
+    expect(m.decodeInput(ev.bytes)).toEqual([0, 64 / 127]);
+    // A fader at 0 must still register (note 0, velocity > 0)
+    expect(m.decodeInput(encodeSingle(0, noteMap).bytes)).toEqual([0, 0]);
   });
 });
 

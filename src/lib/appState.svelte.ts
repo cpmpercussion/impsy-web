@@ -12,6 +12,13 @@ import {
   aicU6MIDIProDefault,
 } from "./impsy/midiMapping";
 import { encodeSingle } from "./impsy/midiMapper";
+import {
+  MIDILog,
+  isRealtime,
+  summarizeEmission,
+  type MIDIDirection,
+  type MIDILogEntry,
+} from "./midi/midiLog";
 import { SessionLogger } from "./impsy/sessionLogger";
 import { ParameterDefaults } from "./impsy/constants";
 import {
@@ -80,6 +87,24 @@ export class IMPSYApp {
   inputTriggers = $state<number[]>([]);
   outputTriggers = $state<number[]>([]);
 
+  // Aggregate activity LEDs (issue #10): bump on any MIDI in / fader drag, and
+  // on every RNN emission. Only the change matters — mirrors AUv3's
+  // inputEventCount / generatedEventCount.
+  inputActivity = $state(0);
+  outputActivity = $state(0);
+
+  // "Last Output" card (issue #9): running emission count, Δt and a short MIDI
+  // summary of the latest RNN emission.
+  lastOutput = $state({ count: 0, dt: 0, summary: "—" });
+
+  // Live MIDI console (issue #14): last 20 messages in and out, newest first.
+  // Pushes are buffered and folded into `midiLog` once per animation frame so
+  // dense CC streams don't re-render per message.
+  midiLog = $state.raw<MIDILogEntry[]>([]);
+  consolePaused = $state(false);
+  private log = new MIDILog(20);
+  private logFlushScheduled = false;
+
   // ── MIDI access ───────────────────────────────────────────────────────────
   async requestMIDI(): Promise<void> {
     try {
@@ -105,7 +130,10 @@ export class IMPSYApp {
 
   /** Push the current selection arrays into the WebMIDI layer. */
   private syncMidi(): void {
-    this.midi.setInputs(this.selectedInputIds, (data) => this.engine?.enqueueInput(data));
+    this.midi.setInputs(this.selectedInputIds, (data) => {
+      this.noteMIDI("in", data);
+      this.engine?.enqueueInput(data);
+    });
     this.midi.setOutputs(this.selectedOutputIds);
   }
 
@@ -166,6 +194,7 @@ export class IMPSYApp {
       this.inputValues = new Array(userDims).fill(0);
       this.inputTriggers = new Array(userDims).fill(0);
       this.outputTriggers = new Array(userDims).fill(0);
+      this.lastOutput = { count: 0, dt: 0, summary: "—" };
 
       this.ensureEngine();
       this.engine!.updateMappings(this.mappings);
@@ -206,7 +235,37 @@ export class IMPSYApp {
   injectInput(dimensionIndex: number, value: number): void {
     const mapping = this.mappings.inputMappings[dimensionIndex];
     if (!mapping || !this.engine) return;
-    this.engine.enqueueInput(encodeSingle(value, mapping).bytes);
+    const bytes = encodeSingle(value, mapping).bytes;
+    this.noteMIDI("in", bytes, true);
+    this.engine.enqueueInput(bytes);
+  }
+
+  // ── MIDI activity + console ────────────────────────────────────────────────
+  /**
+   * Record one message for the activity LED and console. System real-time
+   * (clock, active sensing) is ignored: it streams continuously from many
+   * devices and would drown out everything else.
+   */
+  private noteMIDI(direction: MIDIDirection, bytes: ArrayLike<number>, fromUI = false): void {
+    if (isRealtime(bytes)) return;
+    if (direction === "in") this.inputActivity++;
+    if (this.consolePaused) return;
+    this.log.push(direction, bytes, performance.now() / 1000, fromUI);
+    if (this.logFlushScheduled) return;
+    this.logFlushScheduled = true;
+    requestAnimationFrame(() => {
+      this.logFlushScheduled = false;
+      this.midiLog = this.log.flush();
+    });
+  }
+
+  setConsolePaused(paused: boolean): void {
+    this.consolePaused = paused;
+  }
+
+  clearConsole(): void {
+    this.log.clear();
+    this.midiLog = [];
   }
 
   resetStates(): void {
@@ -303,7 +362,10 @@ export class IMPSYApp {
 
   private ensureEngine(): void {
     if (this.engine) return;
-    const engine = new InteractionEngine(this.mappings, (bytes) => this.midi.send(bytes));
+    const engine = new InteractionEngine(this.mappings, (bytes) => {
+      this.noteMIDI("out", bytes);
+      this.midi.send(bytes);
+    });
     engine.threshold = this.params.threshold;
     engine.sigmaTemp = this.params.sigmaTemp;
     engine.piTemp = this.params.piTemp;
@@ -316,7 +378,13 @@ export class IMPSYApp {
         this.inputTriggers[dim]++;
       }
     };
-    engine.onEventGenerated = (_dt, _events, values) => {
+    engine.onEventGenerated = (dt, events, values) => {
+      this.outputActivity++;
+      this.lastOutput = {
+        count: this.lastOutput.count + 1,
+        dt,
+        summary: summarizeEmission(events),
+      };
       for (let i = 0; i < values.length && i < this.outputValues.length; i++) {
         this.outputValues[i] = values[i];
         this.outputTriggers[i]++;

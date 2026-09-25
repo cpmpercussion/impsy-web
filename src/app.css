@@ -89,6 +89,12 @@ header.app-header {
   margin-bottom: 1.25rem;
 }
 
+header.app-header .header-status {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
 header.app-header h1 {
   font-size: 1.25rem;
   font-weight: 650;

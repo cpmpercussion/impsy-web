@@ -56,8 +56,14 @@ export class MIDIMapper {
       if (!m.enabled || m.channel !== channel) continue;
       switch (m.messageType) {
         case "noteOn":
-          if (messageType !== 0x90 || bytes[1] !== m.number) continue;
-          return [m.id - 1, (bytes.length >= 3 ? bytes[2] : 0) / 127.0];
+          // Matches IMPSY Python (`midi_message_to_index_value` in
+          // ../impsy/impsy/utils.py): any note on the mapped channel, with the
+          // note number (pitch) as the value. `m.number` is ignored. Deliberate
+          // deviation: velocity-0 note-ons are note-offs (running-status
+          // keyboards send them on release) and are skipped, so a key release
+          // isn't a second interaction.
+          if (messageType !== 0x90 || bytes.length < 3 || bytes[2] === 0) continue;
+          return [m.id - 1, bytes[1] / 127.0];
         case "controlChange":
           if (messageType !== 0xb0 || bytes[1] !== m.number) continue;
           return [m.id - 1, normalizeCC(m, bytes.length >= 3 ? bytes[2] : 0)];
@@ -159,7 +165,9 @@ export function encodeSingle(value: number, m: DimensionMapping): MIDIEvent {
   const ch = (m.channel - 1) & 0x0f;
   switch (m.messageType) {
     case "noteOn":
-      return noteOn(ch, m.number, Math.max(0, Math.min(127, Math.round(v * 127.0))));
+      // Pitch carries the value, as in decodeInput and encodeOutput. Velocity
+      // must be non-zero or decodeInput treats it as a note-off.
+      return noteOn(ch, Math.max(0, Math.min(127, Math.round(v * 127.0))), 64);
     case "controlChange":
       return { bytes: [0xb0 | ch, m.number & 0x7f, denormalizeCC(m, v)] };
     case "pitchBend": {
