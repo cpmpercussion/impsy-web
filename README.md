@@ -60,6 +60,15 @@ node scripts/verify-faders.mjs           # drag a fader → model responds
 node scripts/verify-midi-input.mjs 5173  # mock controller lights the faders
 ```
 
+CI (`.github/workflows/ci.yml`) runs the unit tests, type check and build on
+every PR and push to `main`; `main` deploys to GitHub Pages once they pass.
+
+## Releases
+
+Releases are semver tags on `main` with GitHub Release notes; the app footer
+shows the version and commit of the running build. See
+[RELEASING.md](RELEASING.md) for the process and the manual QA checklist.
+
 ## Architecture
 
 Stack: **Svelte 5 + Vite + TypeScript**, **LiteRT.js** for inference. Everything runs

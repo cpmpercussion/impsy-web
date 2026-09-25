@@ -28,7 +28,9 @@ npm run test:watch
 node scripts/verify-inference.mjs
 ```
 
-`npm test` runs a single file via `npx vitest run src/lib/impsy/midiMapper.test.ts`.
+Run a single test file with `npx vitest run src/lib/impsy/midiMapper.test.ts`.
+
+CI (`.github/workflows/ci.yml`) runs `npm test` + `npm run build` on PRs and `main`; `deploy.yml` publishes `main` to GitHub Pages after the same checks. Releases are semver tags that must match `package.json` (`release.yml` creates the GitHub Release) — see `RELEASING.md`. The app footer shows `__APP_VERSION__` / `__GIT_HASH__`, injected by `vite.config.ts` `define`.
 
 ## Architecture
 
