@@ -53,6 +53,7 @@ Web MIDI in  → InteractionEngine.enqueueInput
 | `impsy/tfliteRnn.ts` | `TFLiteRNN.swift` + `ModelInspector.swift` | LiteRT wrapper; introspects config; holds LSTM state across `generate()` |
 | `impsy/interactionEngine.ts` | `InteractionEngine.swift` | call/response state machine + self-feeding response loop |
 | `midi/webMidi.ts` | `CoreMIDIBridge` | Web MIDI access, device lists, send/receive |
+| `midi/midiLog.ts` | `MIDIEvent.summary` | MIDI message descriptions + bounded log for the live console / Last Output card |
 | `appState.svelte.ts` | `IMPSYViewModel.swift` | Svelte-runes orchestration; single shared `app` instance |
 | `components/*.svelte` | `IMPSYUI/*` | MIDI connection, model status, parameters, mapping editor |
 

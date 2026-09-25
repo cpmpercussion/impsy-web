@@ -7,6 +7,9 @@
   import MappingEditor from "./components/MappingEditor.svelte";
   import ConfigIO from "./components/ConfigIO.svelte";
   import SessionRecording from "./components/SessionRecording.svelte";
+  import ActivityIndicators from "./components/ActivityIndicators.svelte";
+  import LastOutput from "./components/LastOutput.svelte";
+  import MidiConsole from "./components/MidiConsole.svelte";
 
   type Pane = "dashboard" | "settings" | "mapping";
   const panes: { id: Pane; label: string }[] = [
@@ -26,7 +29,10 @@
       <h1>IMPSY Web</h1>
       <div class="subtitle">Interactive music prediction in the browser</div>
     </div>
-    <span class="badge {app.callState.toLowerCase()}">{app.callState}</span>
+    <div class="header-status">
+      <ActivityIndicators />
+      <span class="badge {app.callState.toLowerCase()}">{app.callState}</span>
+    </div>
   </header>
 
   <!-- Tab switcher: visible only when the panes collapse to one column. -->
@@ -47,8 +53,10 @@
             <button onclick={() => app.resetStates()}>Reset LSTM</button>
           {/if}
         </div>
+        <LastOutput />
       </section>
       <DimensionFaders />
+      <MidiConsole />
     </div>
 
     <div class="pane" class:active={active === "settings"}>
