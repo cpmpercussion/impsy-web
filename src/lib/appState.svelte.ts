@@ -294,7 +294,17 @@ export class IMPSYApp {
   injectInput(dimensionIndex: number, value: number): void {
     const mapping = this.mappings.inputMappings[dimensionIndex];
     if (!mapping || !this.engine) return;
-    const bytes = encodeSingle(value, mapping).bytes;
+    // A note-on carries both pitch and velocity; keep the channel's other one
+    // (its first note / note-velocity dimension) at its current value.
+    const partner = mapping.messageType === "noteOn" ? "noteVelocity" : "noteOn";
+    const companionIndex = this.mappings.inputMappings.findIndex(
+      (m) => m.enabled && m.channel === mapping.channel && m.messageType === partner,
+    );
+    const companion =
+      mapping.messageType === "noteOn" || mapping.messageType === "noteVelocity"
+        ? this.inputValues[companionIndex]
+        : undefined;
+    const bytes = encodeSingle(value, mapping, companion).bytes;
     this.noteMIDI("in", bytes, true);
     this.engine.enqueueInput(bytes);
   }

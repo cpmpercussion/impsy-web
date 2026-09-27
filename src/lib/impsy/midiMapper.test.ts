@@ -11,9 +11,9 @@ describe("decodeInput", () => {
   it("decodes a CC into the right 0-based dimension and normalised value", () => {
     const m = new MIDIMapper(ccSet());
     // CC74 (0xB0, 74, 127) on ch1 → dimension 1 → index 0, value 1.0
-    expect(m.decodeInput([0xb0, 74, 127])).toEqual([0, 1]);
+    expect(m.decodeInput([0xb0, 74, 127])).toEqual([[0, 1]]);
     // CC75 value 0 → index 1, value 0
-    expect(m.decodeInput([0xb0, 75, 0])).toEqual([1, 0]);
+    expect(m.decodeInput([0xb0, 75, 0])).toEqual([[1, 0]]);
   });
 
   it("ignores messages that match no mapping", () => {
@@ -37,11 +37,11 @@ describe("noteOn input (issue #12, parity with Python/AUv3)", () => {
 
   it("decodes any note on the mapped channel, with pitch as the value", () => {
     const m = new MIDIMapper(set());
-    expect(m.decodeInput([0x91, 64, 100])).toEqual([0, 64 / 127]);
+    expect(m.decodeInput([0x91, 64, 100])).toEqual([[0, 64 / 127]]);
     // Not tied to mapping.number (60): note 127 still matches
-    expect(m.decodeInput([0x91, 127, 1])).toEqual([0, 1]);
+    expect(m.decodeInput([0x91, 127, 1])).toEqual([[0, 1]]);
     // Velocity doesn't affect the value
-    expect(m.decodeInput([0x91, 64, 5])).toEqual([0, 64 / 127]);
+    expect(m.decodeInput([0x91, 64, 5])).toEqual([[0, 64 / 127]]);
   });
 
   it("ignores note-offs, velocity-0 note-ons, and other channels", () => {
@@ -55,9 +55,9 @@ describe("noteOn input (issue #12, parity with Python/AUv3)", () => {
     const m = new MIDIMapper(set());
     const ev = encodeSingle(0.5, noteMap);
     expect(ev.bytes).toEqual([0x91, 64, 64]); // pitch = value, non-zero velocity
-    expect(m.decodeInput(ev.bytes)).toEqual([0, 64 / 127]);
+    expect(m.decodeInput(ev.bytes)).toEqual([[0, 64 / 127]]);
     // A fader at 0 must still register (note 0, velocity > 0)
-    expect(m.decodeInput(encodeSingle(0, noteMap).bytes)).toEqual([0, 0]);
+    expect(m.decodeInput(encodeSingle(0, noteMap).bytes)).toEqual([[0, 0]]);
   });
 });
 
@@ -102,13 +102,15 @@ describe("encodeOutput", () => {
     expect(second[1].bytes[0]).toBe(0x90); // note_on new
   });
 
-  it("suppresses a repeat CC value within the dedup window", () => {
+  it("only resends a CC when its MIDI value changes (impsy#110)", () => {
     const m = new MIDIMapper(ccSet());
-    expect(m.encodeOutput([0.5, 0], { now: 0, ccDedupWindow: 0.03 })).toHaveLength(2);
-    // Same values 10 ms later → both suppressed (within 30 ms window)
-    expect(m.encodeOutput([0.5, 0], { now: 0.01, ccDedupWindow: 0.03 })).toHaveLength(0);
-    // 40 ms later → window expired
-    expect(m.encodeOutput([0.5, 0], { now: 0.05, ccDedupWindow: 0.03 }).length).toBeGreaterThan(0);
+    expect(m.encodeOutput([0.5, 0])).toHaveLength(2);
+    // 0.502 still encodes to 64, so nothing is sent
+    expect(m.encodeOutput([0.502, 0])).toHaveLength(0);
+    expect(m.encodeOutput([0.6, 0]).map((e) => e.bytes)).toEqual([[0xb0, 74, 76]]);
+    // releaseAllNotes forgets the last values
+    m.releaseAllNotes();
+    expect(m.encodeOutput([0.6, 0])).toHaveLength(2);
   });
 });
 

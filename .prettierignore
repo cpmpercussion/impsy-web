@@ -5,3 +5,5 @@ public/coi-serviceworker.js
 package-lock.json
 test-results/
 playwright-report/
+# Vendored IMPSY conformance vectors — never edit (see spec/README.md).
+spec/

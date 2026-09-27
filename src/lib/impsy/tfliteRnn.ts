@@ -74,14 +74,11 @@ export class TFLiteRNN {
     const outputs = model.getOutputDetails() as TensorDetail[];
 
     // Inputs: the 3-D tensor is `inputs`; the 2-D tensors are LSTM states,
-    // ordered by tensor index as [h0, c0, h1, c1, …] (matches mdrnn.py).
+    // ordered [h0, c0, h1, c1, …].
     const inputsDetail = inputs.find((d) => d.shape.length === 3);
     if (!inputsDetail) throw new Error("TFLiteRNN: could not find 'inputs' tensor");
     this.inputsName = inputsDetail.name;
-    this.stateInputNames = inputs
-      .filter((d) => d.shape.length === 2)
-      .sort((a, b) => a.index - b.index)
-      .map((d) => d.name);
+    this.stateInputNames = orderStateInputs(inputs.filter((d) => d.shape.length === 2));
 
     // Outputs: MDN output is the 2-D tensor whose width = M*(2D+1); the rest
     // are updated states in index order [h0, c0, h1, c1, …].
@@ -109,12 +106,40 @@ export class TFLiteRNN {
   }
 
   /**
-   * Run one forward pass.
+   * Which tensor plays which role, as resolved from the model: the input names
+   * in feed order `[inputs, h0, c0, h1, c1, …]`, the MDN output, and the output
+   * that feeds each state input back.
+   */
+  get tensorNames(): {
+    inputs: string[];
+    mdnOutput: string;
+    stateOutputs: Record<string, string>;
+  } {
+    return {
+      inputs: [this.inputsName, ...this.stateInputNames],
+      mdnOutput: this.mdnOutputName,
+      stateOutputs: Object.fromEntries(
+        this.stateInputNames.map((name, i) => [name, this.stateOutputNames[i]]),
+      ),
+    };
+  }
+
+  /**
+   * Run one forward pass and sample from it.
    * @param input dense vector length `dimension`; index 0 = dt (seconds),
    *   1…N normalised [0,1]. Scaling by SCALE_FACTOR is applied internally.
    * @returns sampled output vector length `dimension`.
    */
   generate(input: number[], piTemp: number, sigmaTemp: number): number[] {
+    const mdnParams = this.step(input);
+    return sampleMDN(mdnParams, this.config.dimension, this.config.numMixtures, piTemp, sigmaTemp);
+  }
+
+  /**
+   * Run one forward pass, advancing the LSTM state, and return the raw MDN
+   * output `[mus | sigmas | piLogits]` (still scaled by SCALE_FACTOR).
+   */
+  step(input: number[]): Float32Array {
     const scaled = new Float32Array(this.config.dimension);
     for (let i = 0; i < this.config.dimension; i++) scaled[i] = input[i] * SCALE_FACTOR;
 
@@ -137,7 +162,7 @@ export class TFLiteRNN {
     Object.values(feed).forEach((t) => t.delete());
     Object.values(out).forEach((t) => t.delete());
 
-    return sampleMDN(mdnParams, this.config.dimension, this.config.numMixtures, piTemp, sigmaTemp);
+    return mdnParams;
   }
 
   /** Zero all LSTM states. */
@@ -148,6 +173,25 @@ export class TFLiteRNN {
   dispose(): void {
     this.model.delete();
   }
+}
+
+/**
+ * State input names in feed order [h0, c0, h1, c1, …]. Like mdrnn.py, which
+ * feeds its signature runner by name: when every state is named
+ * `…state_{h|c}_N…` use the names — LiteRT lists signature inputs
+ * alphabetically (c before h), so index order would pair h with c. Otherwise
+ * fall back to tensor index order.
+ */
+function orderStateInputs(states: TensorDetail[]): string[] {
+  const keyed = states.map((d) => {
+    const match = /state_([hc])_(\d+)/.exec(d.name);
+    return { name: d.name, key: match ? Number(match[2]) * 2 + (match[1] === "c" ? 1 : 0) : -1 };
+  });
+  const keys = new Set(keyed.map((k) => k.key));
+  if (keyed.every((k) => k.key >= 0) && keys.size === keyed.length) {
+    return keyed.sort((a, b) => a.key - b.key).map((k) => k.name);
+  }
+  return [...states].sort((a, b) => a.index - b.index).map((d) => d.name);
 }
 
 /** Introspect (dimension, numLayers, hiddenUnits, numMixtures) from a model. */

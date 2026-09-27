@@ -4,10 +4,14 @@
 // time delta and is never user-mappable) to a MIDI message. Input and output
 // mappings are independent.
 
-export type MIDIMessageType = "noteOn" | "controlChange" | "pitchBend";
+// `noteVelocity` pairs with the note_on dimensions on its channel: on input it
+// takes a note-on's velocity; on output it sets their velocity and sends
+// nothing itself (IMPSY `note_velocity`, impsy#98).
+export type MIDIMessageType = "noteOn" | "noteVelocity" | "controlChange" | "pitchBend";
 
 export const messageTypeDisplayName: Record<MIDIMessageType, string> = {
   noteOn: "Note On",
+  noteVelocity: "Note Velocity",
   controlChange: "CC",
   pitchBend: "Pitch Bend",
 };
@@ -26,8 +30,14 @@ export interface DimensionMapping {
   messageType: MIDIMessageType;
   /** MIDI channel 1–16. */
   channel: number;
-  /** CC number (0–127); ignored for noteOn and pitchBend. */
+  /** CC number (0–127); ignored for the other types. */
   number: number;
+  /**
+   * Fixed output velocity for noteOn (IMPSY `["note_on", ch, velocity]`),
+   * clamped to 1–127. Unset means 127. A noteVelocity dimension on the same
+   * channel overrides it. Not consulted on input.
+   */
+  velocity?: number;
   /** CC range lower bound (0–127); only consulted for controlChange. */
   minValue: number;
   /** CC range upper bound (0–127). */
@@ -48,15 +58,25 @@ export function defaultMapping(index: number): DimensionMapping {
   };
 }
 
-/** Map a 7-bit CC value through a mapping's min/max into normalised [0,1]. */
+/**
+ * Map a 7-bit CC value through a mapping's min/max into normalised [0,1] — the
+ * inverse of denormalizeCC. Matches `midi_to_value` in ../impsy/impsy/utils.py:
+ * the raw value is clamped to the range (either way round), an empty range
+ * gives 0.
+ */
 export function normalizeCC(m: DimensionMapping, raw: number): number {
   const span = m.maxValue - m.minValue;
   if (span === 0) return 0;
-  const clamped = Math.max(m.minValue, Math.min(m.maxValue, raw));
+  const low = Math.min(m.minValue, m.maxValue);
+  const high = Math.max(m.minValue, m.maxValue);
+  const clamped = Math.max(low, Math.min(high, raw));
   return (clamped - m.minValue) / span;
 }
 
-/** Map normalised [0,1] through a mapping's min/max to a 7-bit CC value. */
+/**
+ * Map normalised [0,1] through a mapping's min/max to a 7-bit CC value,
+ * rounding once to nearest, half up (`value_to_midi` in utils.py, impsy#100).
+ */
 export function denormalizeCC(m: DimensionMapping, v: number): number {
   const clamped = Math.max(0, Math.min(1, v));
   const scaled = m.minValue + clamped * (m.maxValue - m.minValue);

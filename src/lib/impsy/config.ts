@@ -13,7 +13,8 @@
 //   - `[osc]`, `[serial]`, `[websocket]`, `[webui]`, … are preserved verbatim
 //     on round-trip (we keep the parsed document) but otherwise ignored.
 //   - `note_on` carries no fixed note number in IMPSY (the dimension value IS
-//     the note); we default `number` to 60 like the AUv3 port.
+//     the note); we default `number` to 60 like the AUv3 port. Its optional
+//     third element is a fixed output velocity (`["note_on", ch, velocity]`).
 
 import { parse, stringify } from "smol-toml";
 import type { DimensionMapping, MIDIMappingSet, MIDIMessageType } from "./midiMapping";
@@ -27,12 +28,14 @@ export const SYNTHESIZED_DEVICE_NAME = "WebMIDI";
 
 const TYPE_FROM_IMPSY: Record<string, MIDIMessageType> = {
   note_on: "noteOn",
+  note_velocity: "noteVelocity",
   control_change: "controlChange",
   pitch_bend: "pitchBend",
 };
 
 const TYPE_TO_IMPSY: Record<MIDIMessageType, string> = {
   noteOn: "note_on",
+  noteVelocity: "note_velocity",
   controlChange: "control_change",
   pitchBend: "pitch_bend",
 };
@@ -172,7 +175,7 @@ function readMappings(
  * DimensionMapping. Returns null for unknown/malformed entries rather than
  * throwing, so a single bad row never kills the whole load.
  */
-function parseMappingEntry(entry: unknown, dimensionID: number): DimensionMapping | null {
+export function parseMappingEntry(entry: unknown, dimensionID: number): DimensionMapping | null {
   if (!Array.isArray(entry) || entry.length < 2) return null;
   const typeRaw = entry[0];
   const channel = entry[1];
@@ -182,9 +185,14 @@ function parseMappingEntry(entry: unknown, dimensionID: number): DimensionMappin
 
   const base = { id: dimensionID, channel, minValue: 0, maxValue: 127, enabled: true };
   switch (messageType) {
-    case "noteOn":
+    case "noteOn": {
       // IMPSY note_on carries no fixed note number — default to middle C.
-      return { ...base, messageType, number: 60 };
+      const mapping: DimensionMapping = { ...base, messageType, number: 60 };
+      if (typeof entry[2] === "number") mapping.velocity = entry[2];
+      return mapping;
+    }
+    case "noteVelocity":
+      return { ...base, messageType, number: 0 };
     case "controlChange": {
       if (entry.length < 3 || typeof entry[2] !== "number") return null;
       const hasRange = entry.length >= 5;
@@ -239,14 +247,19 @@ export function serializeConfig(config: IMPSYConfig): string {
 
 /**
  * IMPSY's positional entry format:
- *   noteOn        → ["note_on", channel]
+ *   noteOn        → ["note_on", channel]  (+ velocity when fixed)
+ *   noteVelocity  → ["note_velocity", channel]
  *   controlChange → ["control_change", channel, cc]  (+ min,max when not 0–127)
  *   pitchBend     → ["pitch_bend", channel]
  */
 function makeMappingEntry(m: DimensionMapping): (string | number)[] {
   switch (m.messageType) {
     case "noteOn":
-      return [TYPE_TO_IMPSY.noteOn, m.channel];
+      return m.velocity !== undefined
+        ? [TYPE_TO_IMPSY.noteOn, m.channel, m.velocity]
+        : [TYPE_TO_IMPSY.noteOn, m.channel];
+    case "noteVelocity":
+      return [TYPE_TO_IMPSY.noteVelocity, m.channel];
     case "controlChange": {
       const entry: (string | number)[] = [TYPE_TO_IMPSY.controlChange, m.channel, m.number];
       if (m.minValue !== 0 || m.maxValue !== 127) entry.push(m.minValue, m.maxValue);

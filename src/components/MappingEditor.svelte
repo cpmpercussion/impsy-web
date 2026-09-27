@@ -9,7 +9,7 @@
 
   let tab = $state<"input" | "output">("input");
 
-  const types: MIDIMessageType[] = ["noteOn", "controlChange", "pitchBend"];
+  const types: MIDIMessageType[] = ["noteOn", "noteVelocity", "controlChange", "pitchBend"];
 
   function current(): DimensionMapping[] {
     return tab === "input" ? app.mappings.inputMappings : app.mappings.outputMappings;

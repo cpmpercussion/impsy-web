@@ -55,7 +55,7 @@ Web MIDI in  → InteractionEngine.enqueueInput
 | `impsy/constants.ts`         | `IMPSYParameters.swift`                    | SCALE_FACTOR, min dt, param defaults/ranges                                                                                 |
 | `impsy/mdnSampler.ts`        | `MDNSampler.swift`                         | softmax-temp → categorical → Box-Muller; postProcess (÷10, clamp, min dt)                                                   |
 | `impsy/midiMapping.ts`       | `MIDIMapping.swift`                        | `DimensionMapping` / `MIDIMappingSet`, defaults, AiC preset                                                                 |
-| `impsy/midiMapper.ts`        | `MIDIMapper.swift`                         | MIDI bytes ↔ normalised [0,1]; monophonic note_off; dedup window                                                            |
+| `impsy/midiMapper.ts`        | `MIDIMapper.swift`                         | MIDI bytes ↔ normalised [0,1]; per-dimension note-offs; resend CC/pitch bend only on change                                 |
 | `impsy/config.ts`            | `IMPSYConfig.swift` + `…+TOML.swift`       | IMPSY `.toml` parse/serialize (params + mappings); round-trips with Python/AUv3 via `smol-toml`; preserves unknown sections |
 | `impsy/tfliteRnn.ts`         | `TFLiteRNN.swift` + `ModelInspector.swift` | LiteRT wrapper; introspects config; holds LSTM state across `generate()`                                                    |
 | `impsy/interactionEngine.ts` | `InteractionEngine.swift`                  | call/response state machine + self-feeding response loop                                                                    |
@@ -74,18 +74,25 @@ TFLite models follow the convention in `../impsy/impsy/mdrnn.py` (`TfliteMDRNN`)
 - **Scaling**: ×`SCALE_FACTOR` (10) into the model, ÷10 out. Dim 0 = time delta (s); 1…N normalised [0,1].
 - **Init parity**: LSTM states zeroed; first interaction is a `randomInitialSample` (dt≈0.01 + random [0,1)).
 
-`tfliteRnn.ts` resolves input/output tensors by shape+index (3-D tensor = `inputs`, 2-D = states in index order; MDN output = the 2-D tensor whose width matches `M·(2D+1)`) — robust to the generic tensor names TFLite assigns after conversion.
+`tfliteRnn.ts` resolves input/output tensors by shape (3-D tensor = `inputs`; MDN output = the 2-D tensor whose width matches `M·(2D+1)`). State inputs are ordered `[h0, c0, h1, c1, …]` **by name** when they're named `state_{h,c}_N` — LiteRT lists signature inputs alphabetically (`state_c_0, state_c_1, state_h_0, …`), so index order would cross h and c — else by index; state outputs pair up in index order. `spec/vectors/model.json` pins this.
 
 **Flex ops caveat**: some `../impsy/models/*.tflite` need the Select-TF (Flex) delegate, which browser runtimes lack — they fail to load. Only Flex-free models work (see `FEASIBILITY.md`). The bundled demo (`public/models/musicMDRNN-dim9-...tflite`) is Flex-free.
 
 ### Parameters & MIDI conventions (align with AUv3)
 
-Four params + a toggle, defaults from `../impsy/configs/AiC-charles-u6midipro.toml`: **Threshold** 0.1s, **Sigma Temp** 0.01, **Pi Temp** 1.0, **Timescale** 1.0×, **MIDI Thru** on. MIDI ↔ [0,1]: Note On `note/127` (pitch; any note on the mapped channel, velocity-0 ignored — Python parity); CC `value/127` (through the mapping's min/max); Pitch Bend `(raw+8192)/16383`. Dimension IDs are 1-based (dim 0 = time, not mappable); input and output mappings are independent.
+Four params + a toggle, defaults from `../impsy/configs/AiC-charles-u6midipro.toml`: **Threshold** 0.1s, **Sigma Temp** 0.01, **Pi Temp** 1.0, **Timescale** 1.0×, **MIDI Thru** on. Dimension IDs are 1-based (dim 0 = time, not mappable); input and output mappings are independent.
+
+MIDI semantics follow IMPSY Python (`midi_message_to_updates` / `MidiOutputState` in `../impsy/impsy/utils.py`) and are pinned by the conformance vectors:
+
+- **Input**: Note On sets `noteOn` dims on its channel to `note/127` and `noteVelocity` dims to `velocity/127` (velocity-0 = note-off, ignored); CC `(raw−min)/(max−min)` through the mapping's range; Pitch Bend `raw14/16383`. One message updates _every_ matching dimension, and is one interaction (one model input, one log row). dt is the unclamped time since the previous interaction.
+- **Output**: values clipped to [0,1], rounded to nearest. Notes tracked per dimension (note-off of its previous note unless another dim on the channel holds it), velocity from the channel's first `noteVelocity` dim, else the fixed `["note_on", ch, vel]`, else 127. CCs/pitch bends only sent when their MIDI value changes; `releaseAllNotes` forgets them.
+- **Playback**: `prepareRNNPlayback` — wait `max(dt, 1ms) × timescale`, but feed the model back the _unscaled_ dt.
 
 ## Conventions & gotchas
 
 - **WASM serving**: LiteRT's WASM runtime is copied from `node_modules/@litertjs/core/wasm` to `public/litert-wasm/` by `scripts/sync-wasm.mjs` (auto-run via `predev`/`prebuild`). `public/litert-wasm/` is gitignored. Production hosting must serve **COOP/COEP** headers (set for dev in `vite.config.ts`) or multi-threaded WASM falls back to single-threaded.
 - **LiteRT Tensor lifecycle**: tensors are WASM-backed and must be `.delete()`d. `tfliteRnn.ts` deletes every input/output tensor each `generate()` — don't drop that or memory leaks.
 - **Literal-type trap**: `ParameterDefaults` is `as const`, so fields initialised from it infer literal types (`0.1`, not `number`). Annotate such fields/`Params` explicitly (already done in `interactionEngine.ts` and `appState.svelte.ts`).
-- **Parity testing**: `src/lib/impsy/*.test.ts` pin the ported math/MIDI logic. When porting more from AUv3, add a test asserting the same numbers the Swift produces.
+- **Conformance vectors**: `spec/` is vendored verbatim from a tagged `cpmpercussion/impsy` release (`SPEC_TAG` / `SPEC_VERSION` in `src/lib/impsy/conformance.test.ts`; see `spec/README.md`). Never edit it (it's in `.prettierignore`); to update, `git archive <tag> spec | tar -x` from `../impsy` and bump the constants. `conformance.test.ts` runs the MIDI/playback/pipeline vectors; `model.json` needs LiteRT in a browser, so it runs via `verify/conformance.html` in `e2e/conformance.spec.ts` (dev project only). Deliberate deviations go in `SKIPPED_CASES` with a reason; WebSocket and dataset vectors are skipped (no such IO here).
+- **Parity testing**: `src/lib/impsy/*.test.ts` pin the ported math/MIDI logic. When porting more from AUv3, add a test asserting the same numbers the Swift produces — but where Python and AUv3 disagree, the spec/Python wins.
 - **Browser tests**: `e2e/midi.ts` installs a fake Web MIDI input/output (`midi.fire(...)`, `midi.sent()`). Faders show user input for only ~250 ms before settling back to the model value, so read them with `faderAfter()` (fire + read in one step) and check "ignored" messages with `expectIgnored()`. Set `PW_CHROMIUM_PATH` to use a preinstalled Chromium.

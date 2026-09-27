@@ -10,6 +10,43 @@
 
 import { SCALE_FACTOR, MINIMUM_DELTA_TIME } from "./constants";
 
+/** One step's mixture in IMPSY units (÷ SCALE_FACTOR), temperatures applied. */
+export interface MixtureParams {
+  /** Mixture weights, softmax(piLogits / piTemp). Length M. */
+  pi: number[];
+  /** Means, M × D. */
+  mu: number[][];
+  /** Sampling standard deviations, sigma · sqrt(sigmaTemp), M × D. */
+  std: number[][];
+}
+
+/** Split raw MDN output into pi / mu / std. Null if `params` is too short. */
+export function mixtureParams(
+  params: Float32Array | number[],
+  dimension: number,
+  numMixtures: number,
+  piTemp: number,
+  sigmaTemp: number,
+): MixtureParams | null {
+  const muCount = numMixtures * dimension;
+  if (params.length < muCount * 2 + numMixtures) return null;
+
+  const piLogits: number[] = [];
+  for (let i = 0; i < numMixtures; i++) piLogits.push(params[muCount * 2 + i]);
+  const sqrtSigmaTemp = Math.sqrt(sigmaTemp);
+  const mu: number[][] = [];
+  const std: number[][] = [];
+  for (let m = 0; m < numMixtures; m++) {
+    mu.push([]);
+    std.push([]);
+    for (let i = 0; i < dimension; i++) {
+      mu[m].push(params[m * dimension + i] / SCALE_FACTOR);
+      std[m].push((params[muCount + m * dimension + i] * sqrtSigmaTemp) / SCALE_FACTOR);
+    }
+  }
+  return { pi: softmaxWithTemperature(piLogits, piTemp), mu, std };
+}
+
 /**
  * Sample a prediction vector of length `dimension` from MDN output params.
  * Index 0 of the result is the time delta (seconds); 1…N are normalised values.
@@ -21,34 +58,23 @@ export function sampleMDN(
   piTemp: number,
   sigmaTemp: number,
 ): number[] {
-  const muCount = numMixtures * dimension;
+  const mix = mixtureParams(params, dimension, numMixtures, piTemp, sigmaTemp);
+  if (!mix) return new Array(dimension).fill(0);
 
-  if (params.length < muCount * 2 + numMixtures) {
-    return new Array(dimension).fill(0);
-  }
-
-  // 1. Select a mixture component via softmax-with-temperature over pi logits.
-  const piLogits: number[] = [];
-  for (let i = 0; i < numMixtures; i++) piLogits.push(params[muCount * 2 + i]);
-  const pis = softmaxWithTemperature(piLogits, piTemp);
-  const m = sampleCategorical(pis);
-
-  // 2 & 3. Sample a diagonal Gaussian for the chosen component:
+  // Select a mixture component, then sample its diagonal Gaussian:
   //   x_i = mu_i + sigma_i * sqrt(sigmaTemp) * N(0,1)
-  const sqrtSigmaTemp = Math.sqrt(sigmaTemp);
-  const out = new Array<number>(dimension);
-  for (let i = 0; i < dimension; i++) {
-    const mu = params[m * dimension + i];
-    const sigma = params[muCount + m * dimension + i];
-    out[i] = mu + sigma * sqrtSigmaTemp * standardNormal();
-  }
-
-  return postProcess(out);
+  const m = sampleCategorical(mix.pi);
+  const out = mix.mu[m].map((mu, i) => mu + mix.std[m][i] * standardNormal());
+  return clampPrediction(out);
 }
 
 /** Undo SCALE_FACTOR, enforce minimum dt, clamp values 1…N to [0,1]. */
 export function postProcess(raw: number[]): number[] {
-  const out = raw.map((v) => v / SCALE_FACTOR);
+  return clampPrediction(raw.map((v) => v / SCALE_FACTOR));
+}
+
+/** Enforce minimum dt and clamp values 1…N to [0,1] (IMPSY units). */
+function clampPrediction(out: number[]): number[] {
   out[0] = Math.max(out[0], MINIMUM_DELTA_TIME); // dim 0 = dt, must be positive
   for (let i = 1; i < out.length; i++) {
     out[i] = Math.min(Math.max(out[i], 0), 1);
@@ -68,11 +94,13 @@ export function softmaxWithTemperature(logits: number[], temperature: number): n
   return exps.map((e) => e / sum);
 }
 
+/** The first index whose cumulative probability reaches a uniform draw. */
 export function sampleCategorical(probs: number[], rand = Math.random): number {
-  let r = rand();
+  const u = rand();
+  let cumulative = 0;
   for (let i = 0; i < probs.length; i++) {
-    r -= probs[i];
-    if (r <= 0) return i;
+    cumulative += probs[i];
+    if (cumulative >= u) return i;
   }
   return probs.length - 1;
 }

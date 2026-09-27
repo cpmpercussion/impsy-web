@@ -9,10 +9,10 @@
 //   RESPONSE — user paused past `threshold`; the RNN feeds itself, each
 //              prediction scheduling the next after its own predicted dt.
 
-import { MIDIMapper, type MIDIEvent } from "./midiMapper";
+import { MIDIMapper, type MIDIEvent, type DimensionUpdate } from "./midiMapper";
 import type { MIDIMappingSet } from "./midiMapping";
 import type { TFLiteRNN } from "./tfliteRnn";
-import { ParameterDefaults, MINIMUM_DELTA_TIME, RESPONSE_LOOP_MIN_DT } from "./constants";
+import { ParameterDefaults, RESPONSE_LOOP_MIN_DT } from "./constants";
 
 export type CallResponseState = "CALL" | "RESPONSE";
 
@@ -26,22 +26,70 @@ export function randomInitialSample(dimension: number): number[] {
   return s;
 }
 
+/**
+ * The dense user-input vector and the time of the last interaction — the
+ * sparse→dense step of `construct_input_list` in ../impsy/impsy/interaction.py.
+ * Each message is one interaction, however many dimensions it sets.
+ */
+export class UserInput {
+  /** Current x_1…x_n (index 0 → dimension 1). */
+  values: number[];
+  /** Seconds (any clock) of the last interaction, or the start time. */
+  lastTime: number;
+
+  constructor(initialValues: number[], startTime: number) {
+    this.values = [...initialValues];
+    this.lastTime = startTime;
+  }
+
+  /**
+   * Apply one message's updates at `time`; returns the model input
+   * `[dt, x_1…x_n]`, with dt the seconds since the previous interaction.
+   */
+  receive(updates: DimensionUpdate[], time: number): number[] {
+    // Copy: the previous vector may still be referenced as a model input.
+    const values = [...this.values];
+    for (const [index, value] of updates) {
+      if (index >= 0 && index < values.length) values[index] = value;
+    }
+    const dt = time - this.lastTime;
+    this.lastTime = time;
+    this.values = values;
+    return [dt, ...values];
+  }
+}
+
+/**
+ * Turn a model output `[dt, x_1…x_n]` into the seconds to wait before playing
+ * it, the values to play, and the next model input — `prepare_rnn_playback` in
+ * interaction.py. dt is floored at 1 ms and the values clipped to [0,1].
+ * Timescale only changes playback speed: the model is fed back its own
+ * (floored) dt, not the scaled one (impsy#103).
+ */
+export function prepareRNNPlayback(
+  output: number[],
+  timescale: number,
+): { wait: number; values: number[]; nextInput: number[] } {
+  const dt = Math.max(output[0], RESPONSE_LOOP_MIN_DT);
+  const values = output.slice(1).map((v) => Math.min(Math.max(v, 0), 1));
+  return { wait: dt * timescale, values, nextInput: [dt, ...values] };
+}
+
 export class InteractionEngine {
   private mapper: MIDIMapper;
   private rnn: TFLiteRNN | null = null;
   private sendMIDI: (bytes: number[]) => void;
 
-  private inputQueue: (Uint8Array | number[])[] = [];
+  private inputQueue: { bytes: Uint8Array | number[]; time: number }[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private responseTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Dense input vector (0-based: index 0 → dimension 1), length dimension-1.
-  private inputVector: number[] = [];
+  // Dense input vector (0-based: index 0 → dimension 1) + last interaction time.
+  private input = new UserInput([], 0);
   // Last full user interaction fed to the RNN: [dt, v_1 … v_N].
   private lastUserInteraction: number[] = [];
 
   private _state: CallResponseState = "CALL";
-  private lastUserInputTime = 0;
   // Token for the active response chain; bumped to cancel an in-flight chain.
   private responseGeneration = 0;
 
@@ -74,7 +122,7 @@ export class InteractionEngine {
 
   start(): void {
     if (this.timer !== null) return;
-    this.lastUserInputTime = nowSeconds();
+    this.input.lastTime = nowSeconds();
     this.timer = setInterval(() => this.tick(), 10);
   }
 
@@ -86,8 +134,9 @@ export class InteractionEngine {
 
   // MARK: Input (called from the Web MIDI message handler)
 
-  enqueueInput(bytes: Uint8Array | number[]): void {
-    this.inputQueue.push(bytes);
+  /** Queue a message; `time` (seconds, performance clock) is when it arrived. */
+  enqueueInput(bytes: Uint8Array | number[], time: number = nowSeconds()): void {
+    this.inputQueue.push({ bytes, time });
   }
 
   // MARK: Model loading
@@ -97,18 +146,17 @@ export class InteractionEngine {
     this.rnn = rnn;
     // Seed the first interaction with a random sample (parity with IMPSY Python).
     const initial = randomInitialSample(rnn.config.dimension);
-    this.inputVector = initial.slice(1);
+    this.input = new UserInput(initial.slice(1), nowSeconds());
     this.lastUserInteraction = initial;
     this.responseGeneration++;
     this.setState("CALL");
-    this.lastUserInputTime = nowSeconds();
   }
 
   clearModel(): void {
     this.flushAllNoteOffs();
     this.rnn?.dispose();
     this.rnn = null;
-    this.inputVector = [];
+    this.input = new UserInput([], nowSeconds());
     this.cancelResponseChain();
   }
 
@@ -118,7 +166,7 @@ export class InteractionEngine {
     if (this.rnn && this.lastUserInteraction.length > 0) {
       const initial = randomInitialSample(this.lastUserInteraction.length);
       this.rnn.generate(initial, this.piTemp, this.sigmaTemp);
-      this.inputVector = initial.slice(1);
+      this.input.values = initial.slice(1);
       this.lastUserInteraction = initial;
     }
     this.responseGeneration++;
@@ -139,29 +187,16 @@ export class InteractionEngine {
     const packets = this.inputQueue;
     this.inputQueue = [];
 
-    let gotUserInput = false;
-    const touched: number[] = [];
-    for (const bytes of packets) {
-      const update = this.mapper.denseUpdate(bytes);
-      if (!update) continue;
-      const [index, value] = update;
-      if (index >= 0 && index < this.inputVector.length) this.inputVector[index] = value;
-      touched.push(index);
-      gotUserInput = true;
-      // Log the full input vector after each mapped message (parity with AUv3).
-      this.onInterfaceEvent?.([...this.inputVector]);
-    }
+    // Each mapped message is one interaction (Python parity): one log row, one
+    // model input, and in CALL mode one RNN step.
+    for (const { bytes, time } of packets) {
+      const updates = this.mapper.decodeInput(bytes);
+      if (!updates) continue;
+      this.lastUserInteraction = this.input.receive(updates, time);
+      this.onInterfaceEvent?.([...this.input.values]);
 
-    const now = nowSeconds();
-
-    if (gotUserInput) {
-      for (const dim of new Set(touched)) {
-        const value = dim < this.inputVector.length ? this.inputVector[dim] : 0;
-        this.onUserInputReceived?.(dim, value);
-      }
-      const dt = Math.max(now - this.lastUserInputTime, MINIMUM_DELTA_TIME);
-      this.lastUserInputTime = now;
-      this.lastUserInteraction = [dt, ...this.inputVector];
+      const touched = new Set(updates.map(([index]) => index));
+      for (const dim of touched) this.onUserInputReceived?.(dim, this.input.values[dim] ?? 0);
 
       // In call mode the RNN consumes input only to advance LSTM state; the
       // generated output is discarded so it has context once it takes over.
@@ -171,15 +206,15 @@ export class InteractionEngine {
 
       // MIDI thru: echo just the changed dimensions through their output maps.
       if (this.inputThru) {
-        const events = this.mapper.encodeOutput(this.inputVector, {
-          dimensions: new Set(touched),
-        });
+        const events = this.mapper.encodeOutput(this.input.values, { dimensions: touched });
         for (const e of events) this.sendMIDI(e.bytes);
       }
     }
 
+    const now = nowSeconds();
+
     // Call ⇄ response transition.
-    const timeSinceInput = now - this.lastUserInputTime;
+    const timeSinceInput = now - this.input.lastTime;
     const newState: CallResponseState = timeSinceInput > this.threshold ? "RESPONSE" : "CALL";
     if (newState === this._state) return;
     this.setState(newState);
@@ -205,23 +240,15 @@ export class InteractionEngine {
       return;
     }
 
-    const rawDt = Math.max(output[0], RESPONSE_LOOP_MIN_DT);
-    const dt = rawDt * this.timescale;
-    const values = output.slice(1);
-    const nextSeed = [dt, ...values];
+    const { wait, values, nextInput } = prepareRNNPlayback(output, this.timescale);
 
     this.responseTimer = setTimeout(() => {
       if (this._state !== "RESPONSE" || generation !== this.responseGeneration) return;
-      const now = nowSeconds();
-      const events = this.mapper.encodeOutput(values, {
-        now,
-        noteDedupWindow: 0.03,
-        ccDedupWindow: 0.03,
-      });
+      const events = this.mapper.encodeOutput(values);
       for (const e of events) this.sendMIDI(e.bytes);
-      this.onEventGenerated?.(dt, events, values);
-      this.generateAndScheduleResponse(nextSeed, generation);
-    }, dt * 1000);
+      this.onEventGenerated?.(wait, events, values);
+      this.generateAndScheduleResponse(nextInput, generation);
+    }, wait * 1000);
   }
 
   private cancelResponseChain(): void {

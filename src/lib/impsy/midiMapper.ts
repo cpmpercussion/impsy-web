@@ -1,8 +1,12 @@
-// MIDIMapper — port of MIDIMapper.swift.
+// MIDIMapper — port of MIDIMapper.swift, with the MIDI semantics of IMPSY
+// Python (`midi_message_to_updates` / `MidiOutputState` in
+// ../impsy/impsy/utils.py), which the conformance vectors in spec/ pin down.
 //
 // Translates between raw MIDI bytes and normalised [0,1] dimension values.
-// Note-on outputs are made monophonic-per-channel (a note_off for the previous
-// note is inserted before each new note_on), matching IMPSY's impsio behaviour.
+// Decoding: one message can update several dimensions. Encoding: notes are
+// tracked per dimension (a note-off for a dimension's previous note precedes
+// its next note-on, unless another dimension on the channel still holds that
+// note); CCs and pitch bends are only sent when their MIDI value changes.
 
 import {
   type DimensionMapping,
@@ -16,25 +20,34 @@ export interface MIDIEvent {
   bytes: number[];
 }
 
+/** One input-vector update: `[dimIndex0Based, value]`. */
+export type DimensionUpdate = [number, number];
+
+const PITCH_BEND_RANGE = 16383;
+
 const noteOn = (ch: number, note: number, vel: number): MIDIEvent => ({
   bytes: [0x90 | (ch & 0x0f), note & 0x7f, vel & 0x7f],
 });
 const noteOff = (ch: number, note: number): MIDIEvent => ({
   bytes: [0x80 | (ch & 0x0f), note & 0x7f, 0],
 });
+const pitchBend = (ch: number, raw: number): MIDIEvent => ({
+  bytes: [0xe0 | (ch & 0x0f), raw & 0x7f, (raw >> 7) & 0x7f],
+});
 
-interface Emission {
-  rawMIDI: number;
-  time: number;
-}
+const clip01 = (v: number) => Math.max(0, Math.min(1, v));
+/** [0,1] → 0–127, round to nearest (half up). */
+const toMIDI = (v: number) => Math.round(clip01(v) * 127);
+/** [0,1] → 14-bit pitch bend 0–16383 (centre 8192). */
+const toPitchBend = (v: number) => Math.round(clip01(v) * PITCH_BEND_RANGE);
 
 export class MIDIMapper {
   mappings: MIDIMappingSet;
 
-  /** Last note emitted per output channel (0–15) for monophonic note_off. */
-  private lastNotes = new Map<number, number>();
-  /** Per-output-dimension last emission, for the dedup window. */
-  private lastEmissions = new Map<number, Emission>();
+  /** Output dimension index → the (0-based channel, note) it is sounding. */
+  private sounding = new Map<number, [number, number]>();
+  /** Last CC / pitch bend value sent, keyed by channel (and controller). */
+  private lastSent = new Map<string, number>();
 
   constructor(mappings: MIDIMappingSet) {
     this.mappings = mappings;
@@ -43,101 +56,94 @@ export class MIDIMapper {
   // MARK: Decode (MIDI → normalised value)
 
   /**
-   * Returns `[dimIndex0Based, value]` if the message matches an input mapping,
-   * else null. Used by the interaction loop's input drain.
+   * The `[dimIndex, value]` updates one message makes to the input vector, or
+   * null if it changes nothing. A message mapped to several dimensions updates
+   * all of them. A note-on sets noteOn dimensions on its channel to note/127
+   * and noteVelocity dimensions to velocity/127; velocity-0 note-ons are
+   * note-offs and are ignored like them.
    */
-  decodeInput(bytes: Uint8Array | number[]): [number, number] | null {
-    if (bytes.length < 2) return null;
-    const status = bytes[0];
-    const messageType = status & 0xf0;
-    const channel = (status & 0x0f) + 1;
+  decodeInput(bytes: Uint8Array | number[]): DimensionUpdate[] | null {
+    if (bytes.length < 3) return null;
+    const messageType = bytes[0] & 0xf0;
+    const channel = (bytes[0] & 0x0f) + 1;
+    const updates: DimensionUpdate[] = [];
 
-    for (const m of this.mappings.inputMappings) {
-      if (!m.enabled || m.channel !== channel) continue;
-      switch (m.messageType) {
-        case "noteOn":
-          // Matches IMPSY Python (`midi_message_to_index_value` in
-          // ../impsy/impsy/utils.py): any note on the mapped channel, with the
-          // note number (pitch) as the value. `m.number` is ignored. Deliberate
-          // deviation: velocity-0 note-ons are note-offs (running-status
-          // keyboards send them on release) and are skipped, so a key release
-          // isn't a second interaction.
-          if (messageType !== 0x90 || bytes.length < 3 || bytes[2] === 0) continue;
-          return [m.id - 1, bytes[1] / 127.0];
-        case "controlChange":
-          if (messageType !== 0xb0 || bytes[1] !== m.number) continue;
-          return [m.id - 1, normalizeCC(m, bytes.length >= 3 ? bytes[2] : 0)];
-        case "pitchBend": {
-          if (messageType !== 0xe0) continue;
-          const lsb = bytes.length >= 2 ? bytes[1] : 0;
-          const msb = bytes.length >= 3 ? bytes[2] : 0;
-          return [m.id - 1, ((msb << 7) | lsb) / 16383.0];
-        }
+    this.mappings.inputMappings.forEach((m, i) => {
+      if (!m.enabled || m.channel !== channel) return;
+      switch (messageType) {
+        case 0x90:
+          if (bytes[2] === 0) return;
+          if (m.messageType === "noteOn") updates.push([i, bytes[1] / 127]);
+          else if (m.messageType === "noteVelocity") updates.push([i, bytes[2] / 127]);
+          return;
+        case 0xb0:
+          if (m.messageType === "controlChange" && m.number === bytes[1])
+            updates.push([i, normalizeCC(m, bytes[2])]);
+          return;
+        case 0xe0:
+          if (m.messageType === "pitchBend")
+            updates.push([i, ((bytes[2] << 7) | bytes[1]) / PITCH_BEND_RANGE]);
+          return;
       }
-    }
-    return null;
+    });
+    return updates.length > 0 ? updates : null;
   }
 
   // MARK: Encode (normalised values → MIDI)
 
   /**
    * Encode a model output vector (`values[i]` → dimension i+1) into MIDI events.
+   * Values are clipped to [0,1].
    *
    * @param dimensions when set, only emit these 0-based dimension indices
    *   (used by the input-thru echo so one input maps to one output).
-   * @param now seconds; when set with a positive window, suppress re-emitting
-   *   the same MIDI value for a dimension within the window.
    */
-  encodeOutput(
-    values: number[],
-    opts: {
-      dimensions?: Set<number>;
-      now?: number;
-      noteDedupWindow?: number;
-      ccDedupWindow?: number;
-    } = {},
-  ): MIDIEvent[] {
-    const { dimensions, now, noteDedupWindow = 0, ccDedupWindow = 0 } = opts;
+  encodeOutput(values: number[], opts: { dimensions?: Set<number> } = {}): MIDIEvent[] {
+    const { dimensions } = opts;
+    const mappings = this.mappings.outputMappings;
     const events: MIDIEvent[] = [];
 
-    this.mappings.outputMappings.forEach((m, i) => {
+    // The first noteVelocity dimension on each channel sets its notes' velocity.
+    const velocityIndex = new Map<number, number>();
+    mappings.forEach((m, i) => {
+      if (m.enabled && m.messageType === "noteVelocity" && !velocityIndex.has(m.channel))
+        velocityIndex.set(m.channel, i);
+    });
+
+    mappings.forEach((m, i) => {
       if (i >= values.length || !m.enabled) return;
       if (dimensions && !dimensions.has(i)) return;
-      const v = Math.max(0, Math.min(1, values[i]));
       const ch = (m.channel - 1) & 0x0f;
 
       switch (m.messageType) {
         case "noteOn": {
-          const note = Math.max(0, Math.min(127, Math.round(v * 127.0)));
-          if (now !== undefined && noteDedupWindow > 0) {
-            const last = this.lastEmissions.get(i);
-            if (last && last.rawMIDI === note && now - last.time < noteDedupWindow) return;
-          }
-          const prev = this.lastNotes.get(ch);
-          if (prev !== undefined) events.push(noteOff(ch, prev));
-          events.push(noteOn(ch, note, 64));
-          this.lastNotes.set(ch, note);
-          if (now !== undefined) this.lastEmissions.set(i, { rawMIDI: note, time: now });
+          const note = toMIDI(values[i]);
+          const previous = this.sounding.get(i);
+          this.sounding.delete(i);
+          if (previous && !this.heldElsewhere(i, previous))
+            events.push(noteOff(previous[0], previous[1]));
+          const vi = velocityIndex.get(m.channel);
+          const velocity =
+            vi !== undefined && vi < values.length
+              ? Math.max(1, toMIDI(values[vi])) // velocity 0 would be a note-off
+              : m.velocity !== undefined
+                ? Math.trunc(Math.max(1, Math.min(127, m.velocity)))
+                : 127;
+          events.push(noteOn(ch, note, velocity));
+          this.sounding.set(i, [ch, note]);
           break;
         }
+        case "noteVelocity":
+          break; // read by the note dimensions on its channel
         case "controlChange": {
-          const ccVal = denormalizeCC(m, v);
-          if (now !== undefined && ccDedupWindow > 0) {
-            const last = this.lastEmissions.get(i);
-            if (last && last.rawMIDI === ccVal && now - last.time < ccDedupWindow) return;
-          }
-          events.push({ bytes: [0xb0 | ch, m.number & 0x7f, ccVal] });
-          if (now !== undefined) this.lastEmissions.set(i, { rawMIDI: ccVal, time: now });
+          const value = denormalizeCC(m, values[i]);
+          if (this.changed(`cc:${ch}:${m.number}`, value))
+            events.push({ bytes: [0xb0 | ch, m.number & 0x7f, value] });
           break;
         }
         case "pitchBend": {
-          const raw = Math.round(v * 16383.0);
-          if (now !== undefined && ccDedupWindow > 0) {
-            const last = this.lastEmissions.get(i);
-            if (last && last.rawMIDI === raw && now - last.time < ccDedupWindow) return;
-          }
-          events.push({ bytes: [0xe0 | ch, raw & 0x7f, (raw >> 7) & 0x7f] });
-          if (now !== undefined) this.lastEmissions.set(i, { rawMIDI: raw, time: now });
+          const raw = toPitchBend(values[i]);
+          if (this.changed(`pb:${ch}`, raw)) events.push(pitchBend(ch, raw));
           break;
         }
       }
@@ -145,34 +151,56 @@ export class MIDIMapper {
     return events;
   }
 
-  /** Emit note_off for every channel with an outstanding note, then forget. */
+  /**
+   * Note-offs for every sounding (channel, note), then forget them. Also
+   * forgets the last CC / pitch bend values so the next step resends them.
+   */
   releaseAllNotes(): MIDIEvent[] {
-    const offs = [...this.lastNotes.entries()].map(([ch, note]) => noteOff(ch, note));
-    this.lastNotes.clear();
-    this.lastEmissions.clear();
+    const seen = new Set<string>();
+    const offs: MIDIEvent[] = [];
+    for (const [ch, note] of this.sounding.values()) {
+      const key = `${ch}:${note}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      offs.push(noteOff(ch, note));
+    }
+    this.sounding.clear();
+    this.lastSent.clear();
     return offs;
   }
 
-  /** 0-based dimension index + value for a single incoming MIDI message. */
-  denseUpdate(bytes: Uint8Array | number[]): [number, number] | null {
-    return this.decodeInput(bytes);
+  /** Record `value` as sent to `key`; false if it's the same as last time. */
+  private changed(key: string, value: number): boolean {
+    if (this.lastSent.get(key) === value) return false;
+    this.lastSent.set(key, value);
+    return true;
+  }
+
+  private heldElsewhere(index: number, [ch, note]: [number, number]): boolean {
+    for (const [i, held] of this.sounding)
+      if (i !== index && held[0] === ch && held[1] === note) return true;
+    return false;
   }
 }
 
-/** Encode a single normalised value through one mapping (UI direct input). */
-export function encodeSingle(value: number, m: DimensionMapping): MIDIEvent {
-  const v = Math.max(0, Math.min(1, value));
+/**
+ * Encode a single normalised value through one input mapping as the MIDI
+ * message that would produce it (UI fader → injected input). Note messages
+ * carry two values, so `companion` supplies the other one: the velocity for a
+ * noteOn, the note for a noteVelocity (both [0,1], default 64/127 and 60/127).
+ */
+export function encodeSingle(value: number, m: DimensionMapping, companion?: number): MIDIEvent {
   const ch = (m.channel - 1) & 0x0f;
+  // Velocity must be non-zero or decodeInput treats the note-on as a note-off.
+  const velocity = (v: number) => Math.max(1, toMIDI(v));
   switch (m.messageType) {
     case "noteOn":
-      // Pitch carries the value, as in decodeInput and encodeOutput. Velocity
-      // must be non-zero or decodeInput treats it as a note-off.
-      return noteOn(ch, Math.max(0, Math.min(127, Math.round(v * 127.0))), 64);
+      return noteOn(ch, toMIDI(value), companion === undefined ? 64 : velocity(companion));
+    case "noteVelocity":
+      return noteOn(ch, companion === undefined ? 60 : toMIDI(companion), velocity(value));
     case "controlChange":
-      return { bytes: [0xb0 | ch, m.number & 0x7f, denormalizeCC(m, v)] };
-    case "pitchBend": {
-      const raw = Math.round(v * 16383.0);
-      return { bytes: [0xe0 | ch, raw & 0x7f, (raw >> 7) & 0x7f] };
-    }
+      return { bytes: [0xb0 | ch, m.number & 0x7f, denormalizeCC(m, value)] };
+    case "pitchBend":
+      return pitchBend(ch, toPitchBend(value));
   }
 }

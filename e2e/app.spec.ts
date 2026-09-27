@@ -51,12 +51,18 @@ test("after the threshold, the model responds on the MIDI output", async ({ page
   await midi.clearSent();
   // Default threshold is 0.1 s: silence hands over to the RNN.
   await expect(page.locator("header .badge")).toHaveText("RESPONSE");
-  await expect.poll(async () => (await midi.sent()).length).toBeGreaterThan(4);
-  const sent = await midi.sent();
-  const notes = sent.filter(([s, , v]) => (s & 0xf0) === 0x90 && v > 0);
-  const ccs = sent.filter(([s, n]) => s === 0xba && n >= 1 && n <= 4);
+  // Poll for RNN output itself: the MIDI thru echo and note-offs of the fired
+  // CC can land after clearSent, so a bare message count isn't enough.
+  const rnnOutput = async () => {
+    const sent = await midi.sent();
+    return {
+      notes: sent.filter(([s, , v]) => (s & 0xf0) === 0x90 && v > 0),
+      ccs: sent.filter(([s, n]) => s === 0xba && n >= 1 && n <= 4),
+    };
+  };
+  await expect.poll(async () => (await rnnOutput()).ccs.length).toBeGreaterThan(0);
+  const { notes } = await rnnOutput();
   expect(notes.length).toBeGreaterThan(0);
-  expect(ccs.length).toBeGreaterThan(0);
   // Every note-on channel is one of the mapped output channels (ch1–4).
   for (const [s] of notes) expect(s & 0x0f).toBeLessThan(4);
 
@@ -76,9 +82,10 @@ test("MIDI thru echoes input through the output mapping, and can be disabled", a
   await expect(page.locator("header .badge")).toHaveText("CALL");
   await midi.clearSent();
 
-  // CC13 = 100 → dim 1 = 100/127 → output dim 1 is Note On ch1 → note 100.
+  // CC13 = 100 → dim 1 = 100/127 → output dim 1 is Note On ch1 → note 100,
+  // at IMPSY's default velocity 127.
   await midi.fire([0xb0, 13, 100]);
-  await expect.poll(() => midi.sent()).toContainEqual([0x90, 100, 64]);
+  await expect.poll(() => midi.sent()).toContainEqual([0x90, 100, 127]);
 
   await page.locator("#thru").uncheck();
   await midi.clearSent();
