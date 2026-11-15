@@ -6,6 +6,8 @@
 import { initLiteRt, TFLiteRNN } from "../src/lib/impsy/tfliteRnn";
 import { mixtureParams, sampleCategorical } from "../src/lib/impsy/mdnSampler";
 import { SCALE_FACTOR } from "../src/lib/impsy/constants";
+import { readTfliteWeights } from "../src/lib/impsy/tfliteReader";
+import { writeTflite } from "../src/lib/impsy/tfliteWriter";
 
 interface ModelCase {
   model_file: string;
@@ -17,12 +19,17 @@ interface ModelCase {
 
 declare global {
   interface Window {
-    __impsyModelCase?: (c: ModelCase) => Promise<unknown>;
+    __impsyModelCase?: (c: ModelCase, opts?: { rewrite?: boolean }) => Promise<unknown>;
   }
 }
 
-async function runModelCase(c: ModelCase) {
-  const bytes = new Uint8Array(await (await fetch(`/spec/${c.model_file}`)).arrayBuffer());
+/**
+ * @param opts.rewrite run the case on the model re-serialised by tfliteWriter.ts
+ *   from the weights tfliteReader.ts extracts, instead of on the file itself.
+ */
+async function runModelCase(c: ModelCase, opts: { rewrite?: boolean } = {}) {
+  let bytes = new Uint8Array(await (await fetch(`/spec/${c.model_file}`)).arrayBuffer());
+  if (opts.rewrite) bytes = writeTflite(readTfliteWeights(bytes));
   const rnn = await TFLiteRNN.create(bytes, "wasm");
   const { dimension, numLayers, hiddenUnits, numMixtures } = rnn.config;
   try {

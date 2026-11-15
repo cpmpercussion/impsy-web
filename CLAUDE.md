@@ -59,6 +59,10 @@ Web MIDI in  → InteractionEngine.enqueueInput
 | `impsy/config.ts`            | `IMPSYConfig.swift` + `…+TOML.swift`       | IMPSY `.toml` parse/serialize (params + mappings); round-trips with Python/AUv3 via `smol-toml`; preserves unknown sections |
 | `impsy/tfliteRnn.ts`         | `TFLiteRNN.swift` + `ModelInspector.swift` | LiteRT wrapper; introspects config; holds LSTM state across `generate()`                                                    |
 | `impsy/interactionEngine.ts` | `InteractionEngine.swift`                  | call/response state machine + self-feeding response loop                                                                    |
+| `impsy/mdrnnWeights.ts`      | — (web only)                               | Format-independent MDRNN weights (Keras layouts) + a plain-TS forward pass used to pin the reader/writer                    |
+| `impsy/tfliteWriter.ts`      | — (stands in for `TFLiteConverter`)        | Serialises weights to a contract-compatible `.tflite` with no TensorFlow: one flat subgraph, plain builtin ops              |
+| `impsy/tfliteReader.ts`      | — (web only)                               | Parses a `.tflite` and recovers the weights, from converter-made (WHILE) or writer-made models                              |
+| `impsy/tfliteSchema.ts`      | TFLite `schema.fbs`                        | The FlatBuffer field slots / op codes the reader and writer share                                                           |
 | `midi/webMidi.ts`            | `CoreMIDIBridge`                           | Web MIDI access, device lists, send/receive                                                                                 |
 | `midi/midiLog.ts`            | `MIDIEvent.summary`                        | MIDI message descriptions + bounded log for the live console / Last Output card                                             |
 | `appState.svelte.ts`         | `IMPSYViewModel.swift`                     | Svelte-runes orchestration; single shared `app` instance                                                                    |
@@ -75,6 +79,8 @@ TFLite models follow the convention in `../impsy/impsy/mdrnn.py` (`TfliteMDRNN`)
 - **Init parity**: LSTM states zeroed; first interaction is a `randomInitialSample` (dt≈0.01 + random [0,1)).
 
 `tfliteRnn.ts` resolves input/output tensors by shape (3-D tensor = `inputs`; MDN output = the 2-D tensor whose width matches `M·(2D+1)`). State inputs are ordered `[h0, c0, h1, c1, …]` **by name** when they're named `state_{h,c}_N` — LiteRT lists signature inputs alphabetically (`state_c_0, state_c_1, state_h_0, …`), so index order would cross h and c — else by index; state outputs pair up in index order. `spec/vectors/model.json` pins this.
+
+**Writing models** (issue #1): `tfliteWriter.ts` emits this contract directly — it is a fixed-architecture emitter, not a converter. It names tensors as the converter does (`inputs`, `state_{h,c}_N`, `Identity`, `Identity_N`), emits no signature (canonical models have none), and allocates state outputs at ascending tensor indices `[h0, c0, …]` because every front end pairs them by index. Weights cross the boundary in Keras layout (`[in, out]` kernels, gates i, f, c, o); the sigma activation is `elu + 1 + 1e-7`. It is pinned by `tfliteWriter.test.ts` (reader + forward pass reproduce `model.json`; bit-exact round trips) and by `e2e/conformance.spec.ts` (a rewritten spec model passes `model.json` in LiteRT). If `build_mdrnn_model` in `../impsy/impsy/mdrnn.py` changes, the writer must follow.
 
 **Flex ops caveat**: some `../impsy/models/*.tflite` need the Select-TF (Flex) delegate, which browser runtimes lack — they fail to load. Only Flex-free models work (see `FEASIBILITY.md`). The bundled demo (`public/models/musicMDRNN-dim9-...tflite`) is Flex-free.
 
