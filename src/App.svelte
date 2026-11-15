@@ -8,6 +8,7 @@
   import ConfigIO from "./components/ConfigIO.svelte";
   import SessionRecording from "./components/SessionRecording.svelte";
   import Training from "./components/Training.svelte";
+  import Help from "./components/Help.svelte";
   import ActivityIndicators from "./components/ActivityIndicators.svelte";
   import LastOutput from "./components/LastOutput.svelte";
   import MidiConsole from "./components/MidiConsole.svelte";
@@ -22,6 +23,13 @@
   // Which pane is shown on narrow screens (tab mode). On wide screens all three
   // panes are laid out side-by-side and this only governs the active tab style.
   let active = $state<Pane>("dashboard");
+
+  // The help page replaces the panes; `#help` in the URL links straight to it.
+  let showHelp = $state(location.hash === "#help");
+  function setHelp(on: boolean) {
+    showHelp = on;
+    history.replaceState(null, "", on ? "#help" : location.pathname + location.search);
+  }
 
   // Build identity (issue #17): lets a bug report name the exact deploy.
   const buildLabel = `v${__APP_VERSION__} · ${__GIT_HASH__}`;
@@ -38,17 +46,23 @@
     <div class="header-status">
       <ActivityIndicators />
       <span class="badge {app.callState.toLowerCase()}">{app.callState}</span>
+      <button onclick={() => setHelp(!showHelp)} aria-pressed={showHelp}>Help</button>
     </div>
   </header>
 
+  {#if showHelp}
+    <Help onclose={() => setHelp(false)} />
+  {/if}
+
   <!-- Tab switcher: visible only when the panes collapse to one column. -->
-  <nav class="pane-tabs">
+  <nav class="pane-tabs" hidden={showHelp}>
     {#each panes as p (p.id)}
       <button class:active={active === p.id} onclick={() => (active = p.id)}>{p.label}</button>
     {/each}
   </nav>
 
-  <div class="panes">
+  <!-- Hidden, not unmounted, while help is open: the panes keep their state. -->
+  <div class="panes" hidden={showHelp}>
     <div class="pane" class:active={active === "dashboard"}>
       <section class="panel">
         <h2>Dashboard</h2>

@@ -152,3 +152,22 @@ test("dragging a fader injects input like MIDI in (UI rows, thru)", async ({ pag
   expect(thru.length).toBeGreaterThan(0);
   expect(thru.at(-1)![2]).toBeGreaterThan(80); // ~0.75 × 127 ≈ 95
 });
+
+test("help page explains the Ableton setup and returns to the app", async ({
+  page,
+  midi: _midi,
+}) => {
+  await openApp(page);
+  await page.getByRole("button", { name: "Help", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Connecting to Ableton Live" })).toBeVisible();
+  await expect(page.getByText("IAC Driver").first()).toBeVisible();
+  await expect(page.locator(".panes")).toBeHidden();
+  expect(page.url()).toMatch(/#help$/);
+
+  // The link opens the help page directly, and the app is still running behind it.
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Connecting to Ableton Live" })).toBeVisible();
+  await page.getByRole("button", { name: "Back to the app" }).click();
+  await expect(page.locator(".panes")).toBeVisible();
+  await expect(page.getByText(/dim 9/)).toBeVisible({ timeout: 45_000 });
+});
