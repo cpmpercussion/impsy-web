@@ -29,6 +29,9 @@ npm run test:watch
 npm run test:e2e # Playwright browser tests (e2e/), fake Web MIDI; starts its own servers
                  # --project=preview (prod build under /impsy-web/) | --project=dev
 
+# If port 5173/4173 is taken by another project, Playwright reuses that server and
+# every test fails on the wrong app — stop it first.
+
 # Diagnostic inference printout in real Chrome (needs `npm run dev` running):
 node scripts/verify-inference.mjs
 ```
@@ -50,19 +53,28 @@ Web MIDI in  → InteractionEngine.enqueueInput
 
 ### Module map (`src/lib/`)
 
-| File                         | Ported from (AUv3)                         | Responsibility                                                                                                              |
-| ---------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `impsy/constants.ts`         | `IMPSYParameters.swift`                    | SCALE_FACTOR, min dt, param defaults/ranges                                                                                 |
-| `impsy/mdnSampler.ts`        | `MDNSampler.swift`                         | softmax-temp → categorical → Box-Muller; postProcess (÷10, clamp, min dt)                                                   |
-| `impsy/midiMapping.ts`       | `MIDIMapping.swift`                        | `DimensionMapping` / `MIDIMappingSet`, defaults, AiC preset                                                                 |
-| `impsy/midiMapper.ts`        | `MIDIMapper.swift`                         | MIDI bytes ↔ normalised [0,1]; per-dimension note-offs; resend CC/pitch bend only on change                                 |
-| `impsy/config.ts`            | `IMPSYConfig.swift` + `…+TOML.swift`       | IMPSY `.toml` parse/serialize (params + mappings); round-trips with Python/AUv3 via `smol-toml`; preserves unknown sections |
-| `impsy/tfliteRnn.ts`         | `TFLiteRNN.swift` + `ModelInspector.swift` | LiteRT wrapper; introspects config; holds LSTM state across `generate()`                                                    |
-| `impsy/interactionEngine.ts` | `InteractionEngine.swift`                  | call/response state machine + self-feeding response loop                                                                    |
-| `midi/webMidi.ts`            | `CoreMIDIBridge`                           | Web MIDI access, device lists, send/receive                                                                                 |
-| `midi/midiLog.ts`            | `MIDIEvent.summary`                        | MIDI message descriptions + bounded log for the live console / Last Output card                                             |
-| `appState.svelte.ts`         | `IMPSYViewModel.swift`                     | Svelte-runes orchestration; single shared `app` instance                                                                    |
-| `components/*.svelte`        | `IMPSYUI/*`                                | MIDI connection, model status, parameters, mapping editor                                                                   |
+| File                         | Ported from (AUv3)                                  | Responsibility                                                                                                              |
+| ---------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `impsy/constants.ts`         | `IMPSYParameters.swift`                             | SCALE_FACTOR, min dt, param defaults/ranges                                                                                 |
+| `impsy/mdnSampler.ts`        | `MDNSampler.swift`                                  | softmax-temp → categorical → Box-Muller; postProcess (÷10, clamp, min dt)                                                   |
+| `impsy/midiMapping.ts`       | `MIDIMapping.swift`                                 | `DimensionMapping` / `MIDIMappingSet`, defaults, AiC preset                                                                 |
+| `impsy/midiMapper.ts`        | `MIDIMapper.swift`                                  | MIDI bytes ↔ normalised [0,1]; per-dimension note-offs; resend CC/pitch bend only on change                                 |
+| `impsy/config.ts`            | `IMPSYConfig.swift` + `…+TOML.swift`                | IMPSY `.toml` parse/serialize (params + mappings); round-trips with Python/AUv3 via `smol-toml`; preserves unknown sections |
+| `impsy/tfliteRnn.ts`         | `TFLiteRNN.swift` + `ModelInspector.swift`          | LiteRT wrapper; introspects config; holds LSTM state across `generate()`                                                    |
+| `impsy/interactionEngine.ts` | `InteractionEngine.swift`                           | call/response state machine + self-feeding response loop                                                                    |
+| `impsy/mdrnnWeights.ts`      | — (web only)                                        | Format-independent MDRNN weights (Keras layouts) + a plain-TS forward pass used to pin the reader/writer                    |
+| `impsy/tfliteWriter.ts`      | — (stands in for `TFLiteConverter`)                 | Serialises weights to a contract-compatible `.tflite` with no TensorFlow: one flat subgraph, plain builtin ops              |
+| `impsy/tfliteReader.ts`      | — (web only)                                        | Parses a `.tflite` and recovers the weights, from converter-made (WHILE) or writer-made models                              |
+| `impsy/tfliteSchema.ts`      | TFLite `schema.fbs`                                 | The FlatBuffer field slots / op codes the reader and writer share                                                           |
+| `impsy/dataset.ts`           | `../impsy/impsy/dataset.py` + slicing in `train.py` | `.log` lines → rows `[dt, x…]` (pinned by `dataset.json`); 50-step training windows                                         |
+| `impsy/mdnLoss.ts`           | keras-mdn-layer `get_mixture_loss_func`             | MDN negative log-likelihood in TF.js (pinned by `fixtures/mdnLoss.json`, generated from Python)                             |
+| `impsy/trainer.ts`           | `../impsy/impsy/train.py` + `mdrnn.py` training     | TF.js training loop over tfjs-core ops → `MDRNNWeights`; Keras initialisers, Adam, validation split, early stopping         |
+| `impsy/trainWorker.ts`       | — (web only)                                        | Web Worker running `trainer.ts` on the TF.js WASM backend (CPU fallback)                                                    |
+| `training.svelte.ts`         | `impsy dataset` + `impsy train` CLI                 | Orchestrates logs → worker → `writeTflite` → load model; single shared `training` instance                                  |
+| `midi/webMidi.ts`            | `CoreMIDIBridge`                                    | Web MIDI access, device lists, send/receive                                                                                 |
+| `midi/midiLog.ts`            | `MIDIEvent.summary`                                 | MIDI message descriptions + bounded log for the live console / Last Output card                                             |
+| `appState.svelte.ts`         | `IMPSYViewModel.swift`                              | Svelte-runes orchestration; single shared `app` instance                                                                    |
+| `components/*.svelte`        | `IMPSYUI/*`                                         | MIDI connection, model status, parameters, mapping editor                                                                   |
 
 ### Model interface contract (must stay exact)
 
@@ -75,6 +87,10 @@ TFLite models follow the convention in `../impsy/impsy/mdrnn.py` (`TfliteMDRNN`)
 - **Init parity**: LSTM states zeroed; first interaction is a `randomInitialSample` (dt≈0.01 + random [0,1)).
 
 `tfliteRnn.ts` resolves input/output tensors by shape (3-D tensor = `inputs`; MDN output = the 2-D tensor whose width matches `M·(2D+1)`). State inputs are ordered `[h0, c0, h1, c1, …]` **by name** when they're named `state_{h,c}_N` — LiteRT lists signature inputs alphabetically (`state_c_0, state_c_1, state_h_0, …`), so index order would cross h and c — else by index; state outputs pair up in index order. `spec/vectors/model.json` pins this.
+
+**Writing models** (issue #1): `tfliteWriter.ts` emits this contract directly — it is a fixed-architecture emitter, not a converter. It names tensors as the converter does (`inputs`, `state_{h,c}_N`, `Identity`, `Identity_N`), emits no signature (canonical models have none), and allocates state outputs at ascending tensor indices `[h0, c0, …]` because every front end pairs them by index. Weights cross the boundary in Keras layout (`[in, out]` kernels, gates i, f, c, o); the sigma activation is `elu + 1 + 1e-7`. It is pinned by `tfliteWriter.test.ts` (reader + forward pass reproduce `model.json`; bit-exact round trips) and by `e2e/conformance.spec.ts` (a rewritten spec model passes `model.json` in LiteRT). If `build_mdrnn_model` in `../impsy/impsy/mdrnn.py` changes, the writer must follow.
+
+**Training** (issue #1): `trainer.ts` matches `train_mdrnn` — data ×`SCALE_FACTOR`, teacher forcing over 50-step windows (`SEQUENCE_LENGTH`) from zero state, Adam lr 0.001, batch 64, the _last_ 10% of windows held out (Keras `validation_split`), early stopping with patience 10, and the model saved is the _last_ epoch's weights (`bestWeights` is Python's `-ckpt` file). The network is hand-written on tfjs-core ops rather than `tf.layers.lstm` (whose recurrent activation defaults to hard sigmoid) so it is the same arithmetic as `mdrnnStep`; `trainer.test.ts` checks that. Keep `@tensorflow/*` imports out of anything the main bundle imports (`MODEL_SIZES` lives in `mdrnnWeights.ts` for that reason) — only `trainWorker.ts` should pull TF.js in.
 
 **Flex ops caveat**: some `../impsy/models/*.tflite` need the Select-TF (Flex) delegate, which browser runtimes lack — they fail to load. Only Flex-free models work (see `FEASIBILITY.md`). The bundled demo (`public/models/musicMDRNN-dim9-...tflite`) is Flex-free.
 
@@ -90,9 +106,9 @@ MIDI semantics follow IMPSY Python (`midi_message_to_updates` / `MidiOutputState
 
 ## Conventions & gotchas
 
-- **WASM serving**: LiteRT's WASM runtime is copied from `node_modules/@litertjs/core/wasm` to `public/litert-wasm/` by `scripts/sync-wasm.mjs` (auto-run via `predev`/`prebuild`). `public/litert-wasm/` is gitignored. Production hosting must serve **COOP/COEP** headers (set for dev in `vite.config.ts`) or multi-threaded WASM falls back to single-threaded.
+- **WASM serving**: LiteRT's WASM runtime is copied from `node_modules/@litertjs/core/wasm` to `public/litert-wasm/`, and the TF.js WASM backend's `.wasm` files to `public/tfjs-wasm/`, by `scripts/sync-wasm.mjs` (auto-run via `predev`/`prebuild`). Both directories are gitignored. Production hosting must serve **COOP/COEP** headers (set for dev in `vite.config.ts`) or multi-threaded WASM falls back to single-threaded.
 - **LiteRT Tensor lifecycle**: tensors are WASM-backed and must be `.delete()`d. `tfliteRnn.ts` deletes every input/output tensor each `generate()` — don't drop that or memory leaks.
 - **Literal-type trap**: `ParameterDefaults` is `as const`, so fields initialised from it infer literal types (`0.1`, not `number`). Annotate such fields/`Params` explicitly (already done in `interactionEngine.ts` and `appState.svelte.ts`).
-- **Conformance vectors**: `spec/` is vendored verbatim from a tagged `cpmpercussion/impsy` release (`SPEC_TAG` / `SPEC_VERSION` in `src/lib/impsy/conformance.test.ts`; see `spec/README.md`). Never edit it (it's in `.prettierignore`); to update, `git archive <tag> spec | tar -x` from `../impsy` and bump the constants. `conformance.test.ts` runs the MIDI/playback/pipeline vectors; `model.json` needs LiteRT in a browser, so it runs via `verify/conformance.html` in `e2e/conformance.spec.ts` (dev project only). Deliberate deviations go in `SKIPPED_CASES` with a reason; WebSocket and dataset vectors are skipped (no such IO here).
+- **Conformance vectors**: `spec/` is vendored verbatim from a tagged `cpmpercussion/impsy` release (`SPEC_TAG` / `SPEC_VERSION` in `src/lib/impsy/conformance.test.ts`; see `spec/README.md`). Never edit it (it's in `.prettierignore`); to update, `git archive <tag> spec | tar -x` from `../impsy` and bump the constants. `conformance.test.ts` runs the MIDI/playback/pipeline vectors; `model.json` needs LiteRT in a browser, so it runs via `verify/conformance.html` in `e2e/conformance.spec.ts` (dev project only). Deliberate deviations go in `SKIPPED_CASES` with a reason; WebSocket vectors are skipped (no such IO here); `dataset.json` runs against `dataset.ts`.
 - **Parity testing**: `src/lib/impsy/*.test.ts` pin the ported math/MIDI logic. When porting more from AUv3, add a test asserting the same numbers the Swift produces — but where Python and AUv3 disagree, the spec/Python wins.
 - **Browser tests**: `e2e/midi.ts` installs a fake Web MIDI input/output (`midi.fire(...)`, `midi.sent()`). Faders show user input for only ~250 ms before settling back to the model value, so read them with `faderAfter()` (fire + read in one step) and check "ignored" messages with `expectIgnored()`. Set `PW_CHROMIUM_PATH` to use a preinstalled Chromium.

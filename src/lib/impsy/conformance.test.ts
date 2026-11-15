@@ -13,6 +13,7 @@ import { MIDIMapper, type MIDIEvent } from "./midiMapper";
 import type { DimensionMapping, MIDIMappingSet } from "./midiMapping";
 import { parseMappingEntry } from "./config";
 import { UserInput, prepareRNNPlayback } from "./interactionEngine";
+import { logToRows } from "./dataset";
 
 export const SPEC_VERSION = "1.0.0";
 export const SPEC_TAG = "v1.2.1";
@@ -75,7 +76,6 @@ const SKIPPED_CASES: Record<string, Record<string, string>> = {};
 const SKIPPED_FILES: Record<string, string> = {
   "websocket_input.json": "no WebSocket IO in the browser port (MIDI only)",
   "websocket_output.json": "no WebSocket IO in the browser port (MIDI only)",
-  "dataset.json": "training runs in Python; the web port only writes .log files",
 };
 
 function forEachCase<C>(file: string, run: (c: C, tol: number) => void): void {
@@ -175,4 +175,18 @@ forEachCase<PipelineCase>("pipeline.json", (c, tol) => {
     log.push({ source: "interface", values: [...input.values] });
   }
   expectClose({ model_inputs: modelInputs, log }, c.expected, tol);
+});
+
+// ── dataset.json ─────────────────────────────────────────────────────────────
+
+interface DatasetCase {
+  name: string;
+  dimension: number;
+  log_lines: string[];
+  expected: number[][];
+}
+
+forEachCase<DatasetCase>("dataset.json", (c, tol) => {
+  const rows = logToRows(c.log_lines, c.dimension);
+  expectClose(rows, c.expected, tol);
 });

@@ -37,6 +37,16 @@ export default defineConfig(({ command, isPreview }) => ({
   },
   optimizeDeps: {
     exclude: ["@litertjs/core"],
+    // Only the training worker imports these, so the dev server would first
+    // meet them mid-session, re-optimise and reload the page — losing the
+    // training run in progress. Pre-bundle them at startup instead.
+    include: [
+      "flatbuffers",
+      "@tensorflow/tfjs-core",
+      "@tensorflow/tfjs-core/dist/register_all_gradients",
+      "@tensorflow/tfjs-backend-cpu",
+      "@tensorflow/tfjs-backend-wasm",
+    ],
   },
   server: {
     // SharedArrayBuffer (LiteRT multi-threaded WASM) needs cross-origin isolation.

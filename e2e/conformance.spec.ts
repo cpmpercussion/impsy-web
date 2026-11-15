@@ -51,4 +51,25 @@ test.describe("model.json conformance", () => {
       expect(mismatches(actual, c.expected, doc.tolerance), c.name).toEqual([]);
     }
   });
+
+  // tfliteWriter.ts: the spec model's weights, re-serialised without
+  // TensorFlow, must be indistinguishable from the converter's file — same
+  // introspected shape, same tensor names and state pairing, same outputs.
+  test("a model written by tfliteWriter passes the same cases", async ({ page }, info) => {
+    test.skip(info.project.name !== "dev", "verify pages are dev-server only");
+    const doc: ModelVectors = JSON.parse(
+      await readFile(new URL("../spec/vectors/model.json", import.meta.url), "utf8"),
+    );
+
+    await page.goto("/verify/conformance.html");
+    await expect(page.locator("#out")).toHaveText("ready", { timeout: 30_000 });
+
+    for (const c of doc.cases) {
+      const actual = await page.evaluate(
+        (c) => window.__impsyModelCase!(c as never, { rewrite: true }),
+        c,
+      );
+      expect(mismatches(actual, c.expected, doc.tolerance), c.name).toEqual([]);
+    }
+  });
 });

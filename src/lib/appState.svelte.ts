@@ -226,6 +226,11 @@ export class IMPSYApp {
     await this.loadModelBytes(buf, url.split("/").pop() ?? url);
   }
 
+  /** Load a model from bytes already in memory (e.g. one just trained in the browser). */
+  async loadModelFromBytes(bytes: Uint8Array, name: string): Promise<void> {
+    await this.loadModelBytes(bytes, name);
+  }
+
   private async loadModelBytes(bytes: Uint8Array, name: string): Promise<void> {
     this.modelStatus = "loading";
     this.errorMessage = null;
@@ -432,6 +437,12 @@ export class IMPSYApp {
     a.download = this.logger.downloadFileName;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  /** The session recorded so far as a `.log` file, for training on in the browser; null if empty. */
+  sessionLog(): { name: string; text: string } | null {
+    if (this.logger.rowCount === 0) return null;
+    return { name: this.logger.downloadFileName, text: this.logger.buildContent() };
   }
 
   private ensureEngine(): void {

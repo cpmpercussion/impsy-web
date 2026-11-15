@@ -4,6 +4,7 @@ dist/
 *.local
 .vite/
 public/litert-wasm/
+public/tfjs-wasm/
 .vscode/
 test-results/
 playwright-report/

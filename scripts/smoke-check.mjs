@@ -1,6 +1,6 @@
 // Post-deploy smoke check (issue #20): confirm a deployed site serves the app,
-// the cross-origin-isolation service worker, the LiteRT WASM runtime and the
-// demo model — and, given a commit hash, that it's the expected build.
+// the cross-origin-isolation service worker, the LiteRT and TF.js WASM runtimes
+// and the demo model — and, given a commit hash, that it's the expected build.
 //
 // Usage: node scripts/smoke-check.mjs <baseUrl> [shortCommitHash]
 //   node scripts/smoke-check.mjs https://cpmpercussion.github.io/impsy-web/ a1b2c3d
@@ -21,6 +21,9 @@ const ASSETS = [
   { path: "coi-serviceworker.js", type: "javascript" },
   { path: "litert-wasm/litert_wasm_internal.wasm", type: "application/wasm" },
   { path: "litert-wasm/litert_wasm_internal.js", type: "javascript" },
+  // TF.js WASM backend, fetched by the training worker.
+  { path: "tfjs-wasm/tfjs-backend-wasm-simd.wasm", type: "application/wasm" },
+  { path: "tfjs-wasm/tfjs-backend-wasm-threaded-simd.wasm", type: "application/wasm" },
   {
     path: "models/musicMDRNN-dim9-layers2-units64-mixtures5-scale10.tflite",
     minBytes: 100_000,
