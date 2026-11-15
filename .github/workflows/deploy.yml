@@ -28,7 +28,7 @@ jobs:
       - run: npm ci
       # Never publish a build whose unit tests fail.
       - run: npm test
-      # prebuild copies the LiteRT WASM runtime into public/litert-wasm/, then
+      # prebuild copies the LiteRT and TF.js WASM runtimes into public/, then
       # svelte-check + vite build produce dist/ (base = /impsy-web/).
       - run: npm run build
       - uses: actions/configure-pages@v5
