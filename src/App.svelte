@@ -7,6 +7,7 @@
   import MappingEditor from "./components/MappingEditor.svelte";
   import ConfigIO from "./components/ConfigIO.svelte";
   import SessionRecording from "./components/SessionRecording.svelte";
+  import Training from "./components/Training.svelte";
   import ActivityIndicators from "./components/ActivityIndicators.svelte";
   import LastOutput from "./components/LastOutput.svelte";
   import MidiConsole from "./components/MidiConsole.svelte";
@@ -70,6 +71,7 @@
       <ParameterControls />
       <ConfigIO />
       <SessionRecording />
+      <Training />
     </div>
 
     <div class="pane" class:active={active === "mapping"}>

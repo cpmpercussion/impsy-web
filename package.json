@@ -33,6 +33,10 @@
   },
   "dependencies": {
     "@litertjs/core": "^0.1.0",
+    "@tensorflow/tfjs-backend-cpu": "^4.22.0",
+    "@tensorflow/tfjs-backend-wasm": "^4.22.0",
+    "@tensorflow/tfjs-backend-webgl": "^4.22.0",
+    "@tensorflow/tfjs-core": "^4.22.0",
     "flatbuffers": "^25.9.23",
     "smol-toml": "^1.6.1"
   }

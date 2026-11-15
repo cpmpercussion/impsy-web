@@ -34,6 +34,14 @@ export interface MDRNNWeights {
   mdn: { mus: DenseWeights; sigmas: DenseWeights; pi: DenseWeights };
 }
 
+/** Model sizes by name (`SIZE_TO_PARAMETERS` in ../impsy/impsy/utils.py). */
+export const MODEL_SIZES = {
+  xxs: { hiddenUnits: 16, numLayers: 2, numMixtures: 5 },
+  xs: { hiddenUnits: 32, numLayers: 2, numMixtures: 5 },
+  s: { hiddenUnits: 64, numLayers: 2, numMixtures: 5 },
+  m: { hiddenUnits: 128, numLayers: 2, numMixtures: 5 },
+} as const;
+
 /**
  * The MDN layer's sigma activation is `elu(x) + 1 + epsilon` (keras-mdn-layer's
  * `elu_plus_one_plus_epsilon`, Keras epsilon 1e-7); the converter folds the
