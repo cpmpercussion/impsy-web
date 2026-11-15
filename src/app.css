@@ -304,3 +304,9 @@ footer.app-footer a {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   margin-left: 0.3rem;
 }
+
+/* The help page stands in for the tabs and panes while it is open. */
+.pane-tabs[hidden],
+.panes[hidden] {
+  display: none;
+}
