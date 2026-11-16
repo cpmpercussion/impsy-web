@@ -5,10 +5,19 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { SCALE_FACTOR } from "./constants";
 import { sliceExamples, type Performance } from "./dataset";
 import { mdnLoss } from "./mdnLoss";
-import { mdrnnStep, zeroStates, type MDRNNWeights } from "./mdrnnWeights";
+import { mdrnnStep, SIGMA_OFFSET, zeroStates, type MDRNNWeights } from "./mdrnnWeights";
 import { readTfliteWeights } from "./tfliteReader";
 import { writeTflite } from "./tfliteWriter";
-import { initialWeights, trainMDRNN } from "./trainer";
+import {
+  allVariables,
+  batchLoss,
+  initialWeights,
+  lossAndGradients,
+  toVariables,
+  trainMDRNN,
+  type Batch,
+  type Variables,
+} from "./trainer";
 
 beforeAll(async () => {
   await tf.setBackend("cpu");
@@ -107,6 +116,82 @@ describe("initialWeights", () => {
     const limit = Math.sqrt(6 / (3 + 4 * H));
     expect(Math.max(...kernel.map(Math.abs))).toBeLessThanOrEqual(limit);
     expect(Array.from(weights.mdn.pi.bias)).toEqual(Array(5).fill(0));
+  });
+});
+
+describe("lossAndGradients", () => {
+  /**
+   * The network as Keras formulates it — one kernel per layer, gates split from
+   * `x·kernel + h·recurrentKernel + bias` — with nothing hand-written, for autodiff.
+   */
+  function referenceLoss(v: Variables, { xs, y }: Batch, D: number, M: number): tf.Scalar {
+    let sequence: tf.Tensor[] = xs;
+    for (const layer of v.lstm) {
+      const [batch] = sequence[0].shape;
+      const H = layer.recurrentKernel.shape[0];
+      let h: tf.Tensor = tf.zeros([batch, H]);
+      let c: tf.Tensor = tf.zeros([batch, H]);
+      const outputs: tf.Tensor[] = [];
+      for (const x of sequence) {
+        const z = tf.add(
+          tf.add(tf.matMul(x, layer.kernel), tf.matMul(h, layer.recurrentKernel)),
+          layer.bias,
+        );
+        const [zi, zf, zg, zo] = tf.split(z, 4, 1);
+        c = tf.add(tf.mul(tf.sigmoid(zf), c), tf.mul(tf.sigmoid(zi), tf.tanh(zg)));
+        h = tf.mul(tf.sigmoid(zo), tf.tanh(c));
+        outputs.push(h);
+      }
+      sequence = outputs;
+    }
+    const top = tf.concat(sequence, 0);
+    const dense = (d: { kernel: tf.Variable; bias: tf.Variable }) =>
+      tf.add(tf.matMul(top, d.kernel), d.bias);
+    const sigmas = tf.add(tf.elu(dense(v.mdn.sigmas)), SIGMA_OFFSET);
+    return mdnLoss(y, tf.concat([dense(v.mdn.mus), sigmas, dense(v.mdn.pi)], 1), D, M);
+  }
+
+  it("matches autodiff of the Keras formulation, in loss and in every gradient", () => {
+    const random = seeded(7);
+    const config = { dimension: 3, numLayers: 2, hiddenUnits: 5, numMixtures: 5 };
+    const [steps, batch] = [7, 4];
+    const before = tf.memory().numTensors;
+    const variables = toVariables(initialWeights(config, random));
+    // Zero-initialised biases would hide a bias gradient routed to the wrong gate.
+    for (const variable of allVariables(variables)) {
+      tf.tidy(() => variable.assign(tf.add(variable, tf.randomUniform(variable.shape, -0.3, 0.3))));
+    }
+    const values = (n: number) => Float32Array.from({ length: n }, () => random() * 6);
+    const data: Batch = {
+      xs: Array.from({ length: steps }, () =>
+        tf.tensor2d(values(batch * config.dimension), [batch, config.dimension]),
+      ),
+      y: tf.tensor2d(values(steps * batch * config.dimension), [steps * batch, config.dimension]),
+    };
+
+    const expected = tf.variableGrads(
+      () => referenceLoss(variables, data, config.dimension, config.numMixtures),
+      allVariables(variables),
+    );
+    const actual = lossAndGradients(variables, data, config);
+
+    expect(actual.loss.dataSync()[0]).toBeCloseTo(expected.value.dataSync()[0], 4);
+    const forwardOnly = batchLoss(variables, data, config);
+    expect(forwardOnly.dataSync()[0]).toBeCloseTo(expected.value.dataSync()[0], 4);
+    expect(Object.keys(actual.grads).sort()).toEqual(Object.keys(expected.grads).sort());
+    for (const [name, grad] of Object.entries(expected.grads)) {
+      const want = grad.dataSync();
+      const got = actual.grads[name].dataSync();
+      expect(actual.grads[name].shape).toEqual(grad.shape);
+      // Every variable gets a real gradient, and ours agrees with it.
+      expect(Math.max(...Array.from(want, Math.abs))).toBeGreaterThan(1e-3);
+      for (let n = 0; n < want.length; n++) expect(got[n]).toBeCloseTo(want[n], 4);
+    }
+
+    tf.dispose([expected.value, expected.grads, actual.loss, actual.grads, forwardOnly]);
+    tf.dispose([data.xs, data.y]);
+    tf.dispose(allVariables(variables));
+    expect(tf.memory().numTensors).toBe(before);
   });
 });
 
