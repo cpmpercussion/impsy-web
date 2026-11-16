@@ -34,6 +34,11 @@ npm run test:e2e # Playwright browser tests (e2e/), fake Web MIDI; starts its ow
 
 # Diagnostic inference printout in real Chrome (needs `npm run dev` running):
 node scripts/verify-inference.mjs
+
+# Training speed per backend / model size (needs `npm run dev` running). Prints
+# ms per batch; add "&profile=1" for time per TF.js kernel. Or open
+# /verify/train-bench.html in a browser (options are listed in verify/train-bench.ts).
+node scripts/train-bench.mjs "backends=wasm&threads=default,1"
 ```
 
 Run a single test file with `npx vitest run src/lib/impsy/midiMapper.test.ts`.
@@ -90,7 +95,9 @@ TFLite models follow the convention in `../impsy/impsy/mdrnn.py` (`TfliteMDRNN`)
 
 **Writing models** (issue #1): `tfliteWriter.ts` emits this contract directly — it is a fixed-architecture emitter, not a converter. It names tensors as the converter does (`inputs`, `state_{h,c}_N`, `Identity`, `Identity_N`), emits no signature (canonical models have none), and allocates state outputs at ascending tensor indices `[h0, c0, …]` because every front end pairs them by index. Weights cross the boundary in Keras layout (`[in, out]` kernels, gates i, f, c, o); the sigma activation is `elu + 1 + 1e-7`. It is pinned by `tfliteWriter.test.ts` (reader + forward pass reproduce `model.json`; bit-exact round trips) and by `e2e/conformance.spec.ts` (a rewritten spec model passes `model.json` in LiteRT). If `build_mdrnn_model` in `../impsy/impsy/mdrnn.py` changes, the writer must follow.
 
-**Training** (issue #1): `trainer.ts` matches `train_mdrnn` — data ×`SCALE_FACTOR`, teacher forcing over 50-step windows (`SEQUENCE_LENGTH`) from zero state, Adam lr 0.001, batch 64, the _last_ 10% of windows held out (Keras `validation_split`), early stopping with patience 10, and the model saved is the _last_ epoch's weights (`bestWeights` is Python's `-ckpt` file). The network is hand-written on tfjs-core ops rather than `tf.layers.lstm` (whose recurrent activation defaults to hard sigmoid) so it is the same arithmetic as `mdrnnStep`; `trainer.test.ts` checks that. Keep `@tensorflow/*` imports out of anything the main bundle imports (`MODEL_SIZES` lives in `mdrnnWeights.ts` for that reason) — only `trainWorker.ts` should pull TF.js in.
+**Training** (issue #1): `trainer.ts` matches `train_mdrnn` — data ×`SCALE_FACTOR`, teacher forcing over 50-step windows (`SEQUENCE_LENGTH`) from zero state, Adam lr 0.001, batch 64, the _last_ 10% of windows held out (Keras `validation_split`), early stopping with patience 10, and the model saved is the _last_ epoch's weights (`bestWeights` is Python's `-ckpt` file). The network is hand-written on tfjs-core ops rather than `tf.layers.lstm` (whose recurrent activation defaults to hard sigmoid) so it computes the same function as `mdrnnStep`; `trainer.test.ts` checks that. Keep `@tensorflow/*` imports out of anything the main bundle imports (`MODEL_SIZES` lives in `mdrnnWeights.ts` for that reason) — only `trainWorker.ts` should pull TF.js in.
+
+**Training speed**: the LSTM's backward pass is hand-written too (`lstmBackward`; autodiff only covers the MDN head and loss), and `trainer.test.ts` pins its gradients against autodiff of the plain Keras formulation — keep that test passing if the network changes. The shape of the code follows what is slow on the TF.js WASM backend, measured with `verify/train-bench.html?profile=1`: `tf.slice` / `tf.split` / `tf.unstack` copy the whole source tensor per piece and `tf.gather` is a scalar loop (so sequences stay as lists of per-step tensors and each gate has its own weights); `tf.matMul` with a transpose flag skips XNNPACK (so gradients transpose explicitly); and every kernel call costs microseconds regardless of size. Re-run the benchmark before and after touching `trainer.ts`. When benchmarking through Claude in Chrome, WASM runs several times slower for about 30 s after each navigation (seemingly while the extension's debugger is attached; Playwright doesn't show it) — use `&delay=35` or the Playwright script.
 
 **Flex ops caveat**: some `../impsy/models/*.tflite` need the Select-TF (Flex) delegate, which browser runtimes lack — they fail to load. Only Flex-free models work (see `FEASIBILITY.md`). The bundled demo (`public/models/musicMDRNN-dim9-...tflite`) is Flex-free.
 

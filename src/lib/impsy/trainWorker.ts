@@ -1,9 +1,12 @@
-// Web Worker that runs trainer.ts, so training (hundreds of milliseconds per
-// batch) never blocks the main thread's MIDI and 10 ms interaction tick.
-// Driven by ../training.svelte.ts.
+// Web Worker that runs trainer.ts, so training (tens to hundreds of
+// milliseconds per batch) never blocks the main thread's MIDI and 10 ms
+// interaction tick. Driven by ../training.svelte.ts.
 //
-// Uses the TF.js WASM backend (several times faster than the plain-JS one for
-// these small matrices), falling back to the CPU backend if WASM can't start.
+// Uses the TF.js WASM backend, falling back to the CPU backend if WASM can't
+// start. Measured with verify/train-bench.html: WASM is roughly 10–35× faster
+// than the plain-JS backend and faster than WebGL at every model size, and its
+// default thread count (half the logical cores) is as fast as any other
+// setting — threads only matter for the largest models — so it is left alone.
 
 import * as tf from "@tensorflow/tfjs-core";
 import "@tensorflow/tfjs-backend-cpu";

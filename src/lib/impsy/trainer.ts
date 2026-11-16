@@ -3,10 +3,12 @@
 // (`PredictiveMusicMDRNN.train`), producing MDRNNWeights that tfliteWriter.ts
 // turns into a `.tflite`.
 //
-// The network is written against tfjs-core ops, not tfjs-layers: it is the
-// same arithmetic as mdrnnWeights.ts `mdrnnStep` (Keras's LSTM with sigmoid
+// The network is written against tfjs-core ops, not tfjs-layers: it computes
+// the same function as mdrnnWeights.ts `mdrnnStep` (Keras's LSTM with sigmoid
 // recurrent activation, weights in Keras layout), unrolled over the training
-// sequence, so trained variables are MDRNNWeights with no conversion.
+// sequence, so trained variables are MDRNNWeights with no conversion. The
+// LSTM's gradients are written by hand, for speed — see "The network and its
+// gradients" below.
 //
 // Matches Python: inputs and targets ×SCALE_FACTOR, teacher forcing over
 // 50-step windows from zero state, Adam (lr 0.001), batch 64, the last 10% of
@@ -128,12 +130,12 @@ export function initialWeights(
 
 // ── The network as TF.js variables ────────────────────────────────────────────
 
-interface Variables {
+export interface Variables {
   lstm: { kernel: tf.Variable; recurrentKernel: tf.Variable; bias: tf.Variable }[];
   mdn: Record<"mus" | "sigmas" | "pi", { kernel: tf.Variable; bias: tf.Variable }>;
 }
 
-function toVariables(weights: MDRNNWeights): Variables {
+export function toVariables(weights: MDRNNWeights): Variables {
   const { dimension: D, hiddenUnits: H, numMixtures: M } = weights.config;
   // tf.variable copies its initial value; tidy frees those (variables outlive it).
   return tf.tidy(() => {
@@ -152,7 +154,7 @@ function toVariables(weights: MDRNNWeights): Variables {
   });
 }
 
-function allVariables(v: Variables): tf.Variable[] {
+export function allVariables(v: Variables): tf.Variable[] {
   return [
     ...v.lstm.flatMap((l) => [l.kernel, l.recurrentKernel, l.bias]),
     ...[v.mdn.mus, v.mdn.sigmas, v.mdn.pi].flatMap((d) => [d.kernel, d.bias]),
@@ -166,43 +168,250 @@ function toWeights(config: ModelConfig, v: Variables): MDRNNWeights {
   );
 }
 
+// ── The network and its gradients ─────────────────────────────────────────────
+//
+// How this is written is shaped by what is slow on the TF.js WASM backend
+// (measured with verify/train-bench.html?profile=1). The matrices here are
+// small, so the arithmetic is cheap and the costs are elsewhere:
+//
+//  - `tf.slice`, `tf.split` and `tf.unstack` copy the *whole source tensor* out
+//    of the WASM heap for each piece they take, and `tf.gather` is a scalar
+//    loop. Stepping through a sequence tensor that way costs steps × the
+//    sequence, and was most of the time. So sequences are lists of per-step
+//    tensors, joined with `tf.concat` (cheap) and never taken apart again,
+//    and each gate has its own weights so nothing is split per step.
+//  - `tf.matMul` only reaches XNNPACK (SIMD, threads) when neither operand is
+//    flagged as transposed; with a flag it is a scalar loop. Autodiff's matMul
+//    gradients always pass a flag, so the gradients here transpose explicitly.
+//  - Every kernel call costs several microseconds whatever its size, and
+//    autodiff through an unrolled LSTM makes about three times as many as the
+//    hand-written backward pass below.
+//
+// trainer.test.ts checks the gradients against autodiff of the plain Keras formulation.
+
+/** Training data for one batch, time-major: step `t`'s rows are the batch at that step. */
+export interface Batch {
+  /** Scaled inputs: one `(batch, dimension)` tensor per step. */
+  xs: tf.Tensor2D[];
+  /** Scaled targets, `(steps·batch, dimension)`. */
+  y: tf.Tensor2D;
+}
+
+/** What one LSTM step leaves behind for the backward pass. */
+interface StepCache {
+  /** `[x_t, h_{t-1}]`, `(batch, inputSize + H)`. */
+  xh: tf.Tensor;
+  i: tf.Tensor;
+  f: tf.Tensor;
+  g: tf.Tensor;
+  o: tf.Tensor;
+  cPrev: tf.Tensor;
+  tanhC: tf.Tensor;
+}
+
 /**
- * Run the network over whole sequences from zero state (the Keras training
- * model: LSTMs with `return_sequences`, then the MDN head on every step).
- *
- * @param x scaled inputs, shape `(batch, steps, dimension)`
- * @returns MDN outputs for every step, shape `(batch·steps, M·(2D+1))`
+ * One Keras LSTM layer (`return_sequences`, sigmoid recurrent activation, zero
+ * initial state): `inputs` and the result are one `(batch, n)` tensor per step.
  */
-function forward(v: Variables, x: tf.Tensor3D, hiddenUnits: number): tf.Tensor2D {
-  const batch = x.shape[0];
-  let sequence: tf.Tensor[] = tf.unstack(x, 1);
-  for (const layer of v.lstm) {
-    let h: tf.Tensor = tf.zeros([batch, hiddenUnits]);
-    let c: tf.Tensor = tf.zeros([batch, hiddenUnits]);
-    const outputs: tf.Tensor[] = [];
-    for (const step of sequence) {
-      const z = tf.add(
-        tf.add(tf.matMul(step, layer.kernel), tf.matMul(h, layer.recurrentKernel)),
-        layer.bias,
-      );
-      const [zi, zf, zg, zo] = tf.split(z, 4, 1);
-      c = tf.add(tf.mul(tf.sigmoid(zf), c), tf.mul(tf.sigmoid(zi), tf.tanh(zg)));
-      h = tf.mul(tf.sigmoid(zo), tf.tanh(c));
-      outputs.push(h);
-    }
-    sequence = outputs;
+function lstmForward(
+  layer: Variables["lstm"][number],
+  inputs: tf.Tensor[],
+): { outputs: tf.Tensor[]; cache: StepCache[] } {
+  const batch = inputs[0].shape[0];
+  const H = layer.recurrentKernel.shape[0];
+  // Per-gate weights over [x, h], in Keras's gate order i, f, g (the cell candidate), o.
+  const [Wi, Wf, Wg, Wo] = tf.split(tf.concat([layer.kernel, layer.recurrentKernel], 0), 4, 1);
+  const [bi, bf, bg, bo] = tf.split(layer.bias, 4);
+  const gate = (xh: tf.Tensor, W: tf.Tensor, bias: tf.Tensor) =>
+    tf.fused.matMul({ a: xh, b: W, bias, activation: "sigmoid" });
+
+  let h: tf.Tensor = tf.zeros([batch, H]);
+  let c: tf.Tensor = tf.zeros([batch, H]);
+  const outputs: tf.Tensor[] = [];
+  const cache: StepCache[] = [];
+  for (const x of inputs) {
+    const xh = tf.concat([x, h], 1);
+    const i = gate(xh, Wi, bi);
+    const f = gate(xh, Wf, bf);
+    const o = gate(xh, Wo, bo);
+    const g = tf.tanh(tf.fused.matMul({ a: xh, b: Wg, bias: bg }));
+    const cPrev = c;
+    c = tf.add(tf.mul(f, cPrev), tf.mul(i, g));
+    const tanhC = tf.tanh(c);
+    h = tf.mul(o, tanhC);
+    outputs.push(h);
+    cache.push({ xh, i, f, g, o, cPrev, tanhC });
   }
-  const top = tf.reshape(tf.stack(sequence, 1), [-1, hiddenUnits]);
-  const dense = (d: { kernel: tf.Variable; bias: tf.Variable }) =>
-    tf.add(tf.matMul(top, d.kernel), d.bias);
-  const sigmas = tf.add(tf.elu(dense(v.mdn.sigmas)), SIGMA_OFFSET);
-  return tf.concat([dense(v.mdn.mus), sigmas, dense(v.mdn.pi)], 1) as tf.Tensor2D;
+  return { outputs, cache };
+}
+
+/**
+ * Backpropagation through time for `lstmForward`.
+ *
+ * @param dOutputs the loss gradient with respect to each step's output
+ * @param needInputs whether to compute the gradient with respect to the inputs (not for the first layer)
+ */
+function lstmBackward(
+  layer: Variables["lstm"][number],
+  cache: StepCache[],
+  dOutputs: tf.Tensor[],
+  needInputs: boolean,
+): { kernel: tf.Tensor; recurrentKernel: tf.Tensor; bias: tf.Tensor; dInputs: tf.Tensor[] } {
+  const [inputSize, width] = layer.kernel.shape;
+  const H = layer.recurrentKernel.shape[0];
+  const kernelT = needInputs ? tf.transpose(layer.kernel) : null;
+  const recurrentT = tf.transpose(layer.recurrentKernel);
+  const one = tf.scalar(1);
+  /** Derivative of a sigmoid, from its output. */
+  const sigmoidPrime = (s: tf.Tensor) => tf.mul(s, tf.sub(one, s));
+  /** Derivative of a tanh, from its output. */
+  const tanhPrime = (t: tf.Tensor) => tf.sub(one, tf.square(t));
+
+  const steps = cache.length;
+  const dzs: tf.Tensor[] = new Array(steps);
+  const dInputs: tf.Tensor[] = new Array(steps);
+  let dhNext: tf.Tensor | null = null;
+  let dcNext: tf.Tensor | null = null;
+  for (let t = steps - 1; t >= 0; t--) {
+    const { i, f, g, o, cPrev, tanhC } = cache[t];
+    const dh: tf.Tensor = dhNext ? tf.add(dOutputs[t], dhNext) : dOutputs[t];
+    let dc: tf.Tensor = tf.mul(tf.mul(dh, o), tanhPrime(tanhC));
+    if (dcNext) dc = tf.add(dc, dcNext);
+    // Gradients at the gates' pre-activations, in Keras's column order.
+    const dz = tf.concat(
+      [
+        tf.mul(tf.mul(dc, g), sigmoidPrime(i)),
+        tf.mul(tf.mul(dc, cPrev), sigmoidPrime(f)),
+        tf.mul(tf.mul(dc, i), tanhPrime(g)),
+        tf.mul(tf.mul(dh, tanhC), sigmoidPrime(o)),
+      ],
+      1,
+    );
+    dzs[t] = dz;
+    if (kernelT) dInputs[t] = tf.matMul(dz, kernelT);
+    if (t > 0) {
+      dcNext = tf.mul(dc, f);
+      dhNext = tf.matMul(dz, recurrentT);
+    }
+  }
+  // The weight gradients sum over steps: one matMul over the whole sequence.
+  const dz = tf.concat(dzs, 0);
+  const xh = tf.concat(
+    cache.map((step) => step.xh),
+    0,
+  );
+  const dW = tf.matMul(tf.transpose(xh), dz);
+  return {
+    kernel: tf.slice(dW, [0, 0], [inputSize, width]),
+    recurrentKernel: tf.slice(dW, [inputSize, 0], [H, width]),
+    bias: tf.sum(dz, 0),
+    dInputs,
+  };
+}
+
+/** `tf.matMul` whose gradient transposes explicitly (see the note above). Same values as the stock gradient. */
+const matMul = tf.customGrad((...args: (tf.Tensor | tf.GradSaveFunc)[]) => {
+  const [a, b, save] = args as [tf.Tensor, tf.Tensor, tf.GradSaveFunc];
+  save([a, b]);
+  return {
+    value: tf.matMul(a, b),
+    gradFunc: (dy: tf.Tensor, [a, b]: tf.Tensor[]) => [
+      tf.matMul(dy, tf.transpose(b)),
+      tf.matMul(tf.transpose(a), dy),
+    ],
+  };
+}) as (a: tf.Tensor, b: tf.Tensor) => tf.Tensor;
+
+/** The six MDN head variables, in the order `mdnHead` takes them. */
+const headVariables = (v: Variables): tf.Variable[] =>
+  [v.mdn.mus, v.mdn.sigmas, v.mdn.pi].flatMap((d) => [d.kernel, d.bias]);
+
+/** The MDN head: `(rows, H)` → `(rows, M·(2D+1))`, laid out `[mus | sigmas | piLogits]`. */
+function mdnHead(top: tf.Tensor, ...head: tf.Tensor[]): tf.Tensor {
+  const [musK, musB, sigmasK, sigmasB, piK, piB] = head;
+  const dense = (kernel: tf.Tensor, bias: tf.Tensor) => tf.add(matMul(top, kernel), bias);
+  const sigmas = tf.add(tf.elu(dense(sigmasK, sigmasB)), SIGMA_OFFSET);
+  return tf.concat([dense(musK, musB), sigmas, dense(piK, piB)], 1);
+}
+
+/** `(steps·batch, n)` → one `(batch, n)` tensor per step, in two levels so that no slice copies much. */
+function splitSteps(all: tf.Tensor, steps: number): tf.Tensor[] {
+  const [rows, n] = all.shape;
+  const batch = rows / steps;
+  const chunk = Math.ceil(Math.sqrt(steps));
+  const out: tf.Tensor[] = [];
+  for (let from = 0; from < steps; from += chunk) {
+    const length = Math.min(chunk, steps - from);
+    const part = tf.slice(all, [from * batch, 0], [length * batch, n]);
+    for (let t = 0; t < length; t++) out.push(tf.slice(part, [t * batch, 0], [batch, n]));
+  }
+  return out;
+}
+
+/** The mean MDN loss of the network on a batch (the Keras training model, from zero state). */
+export function batchLoss(v: Variables, { xs, y }: Batch, config: ModelConfig): tf.Scalar {
+  return tf.tidy(() => {
+    let sequence: tf.Tensor[] = xs;
+    for (const layer of v.lstm) sequence = lstmForward(layer, sequence).outputs;
+    const pred = mdnHead(tf.concat(sequence, 0), ...headVariables(v));
+    return mdnLoss(y, pred, config.dimension, config.numMixtures);
+  });
+}
+
+/**
+ * `batchLoss` and its gradient with respect to every variable, keyed by
+ * variable name (as `Optimizer.applyGradients` takes them).
+ */
+export function lossAndGradients(
+  v: Variables,
+  { xs, y }: Batch,
+  config: ModelConfig,
+): { loss: tf.Scalar; grads: tf.NamedTensorMap } {
+  return tf.tidy(() => {
+    const caches: StepCache[][] = [];
+    let sequence: tf.Tensor[] = xs;
+    for (const layer of v.lstm) {
+      const { outputs, cache } = lstmForward(layer, sequence);
+      caches.push(cache);
+      sequence = outputs;
+    }
+    // Autodiff for the head and the loss, by hand below that.
+    const head = headVariables(v);
+    const { value, grads: headGrads } = tf.valueAndGrads((top: tf.Tensor, ...h: tf.Tensor[]) =>
+      mdnLoss(y, mdnHead(top, ...h), config.dimension, config.numMixtures),
+    )([tf.concat(sequence, 0), ...head]);
+
+    const grads: tf.NamedTensorMap = {};
+    head.forEach((variable, n) => (grads[variable.name] = headGrads[n + 1]));
+    let dOutputs = splitSteps(headGrads[0], xs.length);
+    for (let l = v.lstm.length - 1; l >= 0; l--) {
+      const layer = v.lstm[l];
+      const back = lstmBackward(layer, caches[l], dOutputs, l > 0);
+      grads[layer.kernel.name] = back.kernel;
+      grads[layer.recurrentKernel.name] = back.recurrentKernel;
+      grads[layer.bias.name] = back.bias;
+      dOutputs = back.dInputs;
+    }
+    return { loss: value as tf.Scalar, grads };
+  });
 }
 
 // ── Training ──────────────────────────────────────────────────────────────────
 
-/** Yield to the event loop so the page (and MIDI) stay responsive between batches. */
-const breathe = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+/**
+ * Yield to the event loop between batches, so a worker can receive "stop" (and
+ * a page stays responsive). A MessageChannel task rather than `setTimeout(0)`,
+ * which browsers clamp to 4 ms once nested — a sixth of a small model's batch.
+ */
+const breathe = () =>
+  new Promise<void>((resolve) => {
+    const { port1, port2 } = new MessageChannel();
+    port1.onmessage = () => {
+      port1.close();
+      resolve();
+    };
+    port2.postMessage(null);
+  });
 
 /**
  * Train an MDRNN on performances (rows `[dt, x_1, …, x_n]`, unscaled, as
@@ -245,25 +454,24 @@ export async function trainMDRNN(
   const valExamples = examples.slice(splitAt);
   if (trainExamples.length === 0) throw new Error("Not enough examples to train on.");
 
-  const window = sequenceLength + 1;
-  /** Inputs and targets for a batch of examples, scaled: both `(batch, sequenceLength, D)`. */
-  const makeBatch = (batch: Example[]): { x: tf.Tensor3D; y: tf.Tensor3D } => {
-    const data = new Float32Array(batch.length * window * D);
-    batch.forEach(({ performance, start }, b) => {
-      const rows = performances[performance];
-      for (let t = 0; t < window; t++) {
-        const row = rows[start + t];
-        const at = (b * window + t) * D;
-        for (let d = 0; d < D; d++) data[at + d] = row[d] * SCALE_FACTOR;
+  /** Inputs and targets for a batch of examples, scaled and time-major. */
+  const makeBatch = (batch: Example[]): Batch => {
+    const B = batch.length;
+    const rowsOf = batch.map(({ performance }) => performances[performance]);
+    const xs: tf.Tensor2D[] = [];
+    const y = new Float32Array(sequenceLength * B * D);
+    for (let t = 0; t < sequenceLength; t++) {
+      const x = new Float32Array(B * D);
+      for (let b = 0; b < B; b++) {
+        const at = batch[b].start + t;
+        for (let d = 0; d < D; d++) {
+          x[b * D + d] = rowsOf[b][at][d] * SCALE_FACTOR;
+          y[(t * B + b) * D + d] = rowsOf[b][at + 1][d] * SCALE_FACTOR;
+        }
       }
-    });
-    return tf.tidy(() => {
-      const all = tf.tensor3d(data, [batch.length, window, D]);
-      return {
-        x: tf.slice(all, [0, 0, 0], [-1, sequenceLength, -1]) as tf.Tensor3D,
-        y: tf.slice(all, [0, 1, 0], [-1, sequenceLength, -1]) as tf.Tensor3D,
-      };
-    });
+      xs.push(tf.tensor2d(x, [B, D]));
+    }
+    return { xs, y: tf.tensor2d(y, [sequenceLength * B, D]) };
   };
 
   if (options.initialWeights) {
@@ -280,8 +488,6 @@ export async function trainMDRNN(
   }
   const variables = toVariables(options.initialWeights ?? initialWeights(config, random));
   const optimizer = tf.train.adam(learningRate, 0.9, 0.999, 1e-7);
-  const batchLoss = (x: tf.Tensor3D, y: tf.Tensor3D): tf.Scalar =>
-    mdnLoss(y, forward(variables, x, H), D, M);
 
   const history: EpochInfo[] = [];
   let bestWeights: MDRNNWeights | null = null;
@@ -307,10 +513,17 @@ export async function trainMDRNN(
           break epochLoop;
         }
         const batch = order.slice(b * batchSize, (b + 1) * batchSize);
-        const { x, y } = makeBatch(batch);
-        const lossTensor = optimizer.minimize(() => batchLoss(x, y), true) as tf.Scalar;
+        const data = makeBatch(batch);
+        // What `optimizer.minimize` does, with our gradients in place of autodiff's.
+        const lossTensor = tf.tidy(() => {
+          const { loss, grads } = lossAndGradients(variables, data, config);
+          optimizer.applyGradients(
+            Object.entries(grads).map(([name, tensor]) => ({ name, tensor })),
+          );
+          return loss;
+        });
         const loss = (await lossTensor.data())[0];
-        tf.dispose([x, y, lossTensor]);
+        tf.dispose([data.xs, data.y, lossTensor]);
         if (!Number.isFinite(loss)) {
           stopped = "nan";
           break epochLoop;
@@ -326,10 +539,10 @@ export async function trainMDRNN(
         let valSum = 0;
         for (let i = 0; i < valExamples.length; i += batchSize) {
           const batch = valExamples.slice(i, i + batchSize);
-          const { x, y } = makeBatch(batch);
-          const lossTensor = tf.tidy(() => batchLoss(x, y));
+          const data = makeBatch(batch);
+          const lossTensor = batchLoss(variables, data, config);
           valSum += (await lossTensor.data())[0] * batch.length;
-          tf.dispose([x, y, lossTensor]);
+          tf.dispose([data.xs, data.y, lossTensor]);
           await breathe();
         }
         valLoss = valSum / valExamples.length;
